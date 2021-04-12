@@ -12,16 +12,14 @@ import { ColumnProps, minColumnWidth } from './Column';
 import { ColumnLock, DragColumnAlign } from './enum';
 import TableEditor from './TableEditor';
 import TableCol from './TableCol';
-import { getColumnKey } from './utils';
+import { getColumnKey, isStickySupport } from './utils';
 import autobind from '../_util/autobind';
-import { DRAG_KEY } from './TableStore';
 
 export interface TableWrapperProps extends ElementProps {
   lock?: ColumnLock | boolean;
   hasBody?: boolean;
   hasHeader?: boolean;
   hasFooter?: boolean;
-  dragColumnAlign?:DragColumnAlign,
 }
 
 @observer
@@ -75,7 +73,7 @@ export default class TableWrapper extends Component<TableWrapperProps, any> {
       default:
         return tableStore.leafColumns.filter(
           ({ editor, name, hidden, lock: columnLock }) =>
-            editor && name && !hidden && (!columnLock || !tableStore.overflowX),
+            editor && name && !hidden && (isStickySupport() || !columnLock || !tableStore.overflowX),
         );
     }
   }
@@ -97,11 +95,9 @@ export default class TableWrapper extends Component<TableWrapperProps, any> {
 
   getCol(column, width): ReactNode {
     if (!column.hidden) {
-      const { prefixCls } = this.props;
       return (
         <TableCol
           key={getColumnKey(column)}
-          prefixCls={prefixCls}
           width={width}
           minWidth={minColumnWidth(column)}
         />
@@ -112,22 +108,21 @@ export default class TableWrapper extends Component<TableWrapperProps, any> {
   getColGroup(): ReactNode {
     const { lock, hasHeader, hasFooter } = this.props;
     const {
-      tableStore: { overflowY, overflowX },
+      tableStore: { overflowY, overflowX, customizable, rowDraggable, dragColumnAlign },
     } = this.context;
     let hasEmptyWidth = false;
+    let fixedColumnLength = 1;
+    if (customizable) {
+      fixedColumnLength += 1;
+    }
+    if (rowDraggable && dragColumnAlign === DragColumnAlign.right) {
+      fixedColumnLength += 1;
+    }
 
-    const filterDrag = (columnItem: ColumnProps) => {
-      const { dragColumnAlign } = this.props;
-      if (dragColumnAlign) {
-        return columnItem.key === DRAG_KEY;
-      }
-      return true;
-    };
-
-    const cols = this.leafColumns.filter(filterDrag).map((column, index, array) => {
+    const cols = this.leafColumns.map((column, index, array) => {
       let width = get(column, 'width');
       if (!overflowX) {
-        if (!hasEmptyWidth && index === array.length - 1) {
+        if (!hasEmptyWidth && index === array.length - fixedColumnLength) {
           width = undefined;
         } else if (isNil(width)) {
           hasEmptyWidth = true;
@@ -142,9 +137,8 @@ export default class TableWrapper extends Component<TableWrapperProps, any> {
   }
 
   getEditors() {
-    const { prefixCls } = this.props;
     return this.leafEditorColumns.map(column => (
-      <TableEditor key={column.name} prefixCls={prefixCls} column={column} />
+      <TableEditor key={getColumnKey(column)} column={column} />
     ));
   }
 
@@ -155,19 +149,11 @@ export default class TableWrapper extends Component<TableWrapperProps, any> {
 
   @computed
   get tableWidth() {
-    const { lock, hasBody, dragColumnAlign } = this.props;
+    const { lock, hasBody } = this.props;
     const {
-      tableStore: { overflowY, overflowX, columns },
+      tableStore: { overflowY, overflowX },
     } = this.context;
 
-    if (dragColumnAlign && columns && columns.length > 0) {
-      const dragColumns = columns.filter((columnItem) => {
-        return columnItem.key === DRAG_KEY;
-      });
-      if (dragColumns.length > 0) {
-        return dragColumns[0].width;
-      }
-    }
     if (overflowX) {
       let tableWidth = this.leafColumnsWidth;
       if (tableWidth !== undefined && overflowY && lock !== ColumnLock.left && !hasBody) {
@@ -179,9 +165,9 @@ export default class TableWrapper extends Component<TableWrapperProps, any> {
   }
 
   render() {
-    const { children, lock, hasBody, prefixCls } = this.props;
+    const { children, lock, hasBody } = this.props;
     const {
-      tableStore: { overflowY, height },
+      tableStore: { overflowY, height, prefixCls },
     } = this.context;
     const editors = hasBody && this.getEditors();
     const className = classNames({
@@ -199,6 +185,6 @@ export default class TableWrapper extends Component<TableWrapperProps, any> {
       </table>
     );
 
-    return [editors, table];
+    return [table, editors];
   }
 }

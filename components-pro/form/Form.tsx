@@ -468,6 +468,7 @@ export default class Form extends DataSetComponent<FormProps> {
 
   getObservableProps(props, context) {
     return {
+      ...super.getObservableProps(props, context),
       dataSet: 'dataSet' in props ? props.dataSet : context.dataSet,
       record: 'record' in props ? props.record : context.record,
       dataIndex: defaultTo(props.dataIndex, context.dataIndex),
@@ -646,7 +647,6 @@ export default class Form extends DataSetComponent<FormProps> {
         newLine,
         className,
         fieldClassName,
-        placeholder,
         ...otherProps
       } = props as any;
       let newColSpan = colSpan;
@@ -717,7 +717,6 @@ export default class Form extends DataSetComponent<FormProps> {
       const fieldElementProps: any = {
         key,
         className: classNames(prefixCls, className),
-        placeholder: label && labelLayout === LabelLayout.placeholder ? label : placeholder,
         ...otherProps,
       };
       if (!isString(type)) {

@@ -9,18 +9,99 @@ timeline: true
 
 #### 发布周期
 
-- 修订版本号：每周末会进行日常 bugfix 更新。（如果有紧急的 bugfix，则任何时候都可发布）
-- 次版本号：每月发布一个带有新特性的向下兼容的版本。
+- 修订版本号：日常 bugfix 更新。（如果有紧急的 bugfix，则任何时候都可发布）
+- 次版本号：发布一个带有新特性的向下兼容的版本。
 - 主版本号：含有破坏性更新和新特性，不在发布周期内。
 
 ---
 
+
+## 1.3.0
+
+`2021-04-09`
+
+- 🌟 `<pro>LovConfig`: 新增 tableProps, dataSetProps 配置。
+- 🌟 `configure`: 新增 tableCustomizable, tableColumnTooltip, drawerSectionBorder, tableShowSelectionTips, drawerTransitionName 属性。
+- 🌟 `<pro>Table`: 新增选择记录的提示。
+- 🌟 `<pro>Table`: 新增 clientExportQuantity 配置客户端导出查询数量和轮询导出。
+- 🌟 `<pro>Cascader`: 新增 searchable, searchMatcher 实现可搜索配置。
+- 🌟 `<pro>Table`: 新增 customizable, virtualCell, showSelectionTips 属性。
+- 🌟 `<pro>DataSet.Field`: 新增 precision, numberGrouping, optionsProps 属性。
+- 🌟 `<pro>NumberField`: 新增 precision, numberGrouping 属性。
+- 🌟 `<pro>TextArea`: 新增 onResize 钩子。
+- 🌟 `<pro>PerformanceTable`: 新增与 DataSet 数据源结合 demo。
+- 🌟 `<pro>Modal`: 新增 drawerBorder 属性，与 modal border 属性区分控制。
+- 🌟 `<pro>Table`: 新增 virtualRowHeight 属性, 实现配置虚拟滚动高度。
+- 💄 `<pro>Table`: 优化编辑器性能。
+- 💄 `<pro>Table`: 当编辑器为 TextArea 时，行高可随 TextArea 大小的变更调整大小。
+- 💄 `<pro>Table`: 优化冻结列实现方式和性能。
+- 💄 `<pro>PerformanceTable`: 优化样式，加载条。
+- 💄 `<pro>TextField`: 优化当为 disabled 状态下 range 配置导致的无法复制选中值的问题。
+- 💄 `<pro>Lov`: 废弃 lovEvents。
+- 💄 `<pro>Lov`: 提高 searchable 属性值为 false 的优先级。
+- 🐞 `<pro>TextField`: 修复 renderer 配置出现的样式问题。
+- 🐞 `<pro>DatePicker`: 修复 DatePicker 年份选择的渲染空白问题。
+- 🐞 `<pro>DatePicker`: 修复 DatePicker filter footer 位置当前日期不能过滤。
+- 🐞 `<pro>FormField`: 修复 NumberField 当值为 0 配置 range 时候不会自动切换位置。
+- 🐞 `<pro>Tooltip`: 修复样式优先级。
+- 🐞 `<pro>PerformanceTable`: 修复大数据表格问题。
+- 🐞 `<pro>Table`: 修复表格中 autoHeight 的计算问题。
+- 🐞 `<pro>FormField`: 修复 defaultValue 值会被清理的问题。
+- 🐞 `<pro>Table`: 修复虚拟滚动时编辑器获焦不会自动进入视区的问题。
+- 🐞 `<pro>Table`: 修复表格虚拟滚动结合自动高度表格溢出问题。
+- 🐞 `<pro>Table`: 修复当表格更新时会自动获取焦点的问题。
+- 🐞 `<pro>Output`: 修复值集显示值是数字 0 时渲染为空的问题。
+- 🐞 `<pro>DataSet.Field`：修复 dynamicProps 有概率报错的问题。
+
+## 1.2.0
+
+`2021-03-18`
+
+- 🌟 `configure`: 新增 tableColumnTitleEditable、tableColumnHideable、tableColumnDraggable、tableRowDraggable、tableCustomizedSave、tableCustomizedLoad, modalMaskClosable 全局属性， 废弃 tableDragColumn、tableDragRow、 lovTriggerMode 属性。
+- 🌟 `<pro>Table`: 新增表格个性化功能，包括新增 customizedCode、columnTitleEditable、columnHideable、columnDraggable、rowDraggable 属性， 废弃 columnsMergeCoverage、columnsOnChange、columnsEditType、dragColumn、dragRow 属性, Column 新增 titleEditable 属性。
+- 🐞 `<pro>Table`: 修复边框样式问题。
+- 🐞 `<pro>Select`: 修复可搜索时候，清空按钮会触发两次 onChange。
+- 🐞 `<pro>Record`: 修复 reset 方法无法恢复记录状态的问题。
+- 🐞 `<pro>NumberField`: 修复长按增减值按钮在出现校验失败时无法停止的问题。
+- 🐞 `<pro>Form`: 修复表单各模式 placeholder 被填充为 label 值。
+
+## 1.1.1
+
+`2021-03-12`
+
+- 🌟 `<pro>Select`: 新增选项分页功能。
+- 🌟 `<pro>Lov`: 新增 searchAction，fetchSingle 属性。
+- 💄 `configure`: 扩展 defaultRenderEmpty 全局属性，支持 Output 组件。
+- 💄 `<pro>Modal`: 扩展 maskClosable 可选 true、false、click、dblclick。
+- 💄 `<pro>Form`: 优化 labelLayout 为 placeholder 时候，可以在聚焦时候显示配置的 placeholder 值。
+- 💄 `<pro>Select`: 优化搜索时候的搜索图标，和多选时候反选不可选值出现被删除。
+- 💄 `<pro>TextArea`: 优化拖拽最小高度防止文字被遮蔽。
+- 💄 `<pro>Lov`: 删除 triggerMode 属性，优化为双击触发弹窗。
+- 💄 `<pro>Lov`: 优化 tableProps 支持 lov Table columns 属性合并。
+- 🐞 `<pro>Field`: 修复部分动态属性配置无效的问题。
+- 🐞 `<pro>Lov`: 修复 button mode 选值无效的问题。
+- 🐞 `<pro>Lov`: 修复默认值存在全选某一页后导致的查询跳页问题。
+- 🐞 `<pro>Tootip`: 修复当 Children 为 undefined 时候导致组件报错。
+- 🐞 `<pro>Select`: 修复 searchMatcher 默认配置获取 textField 字段值可能为空时的报错。
+
+
+## 1.1.0
+
+`2021-03-02`
+
+- 🌟 `configure`: 新增 tableParityRow 全局属性。
 - 🌟 `<pro>TreeSelect`: 新增 TreeSelect 组件。
 - 🌟 `<pro>Select`: 新增 selectAllButton 属性。
 - 🌟 `<pro>SelectBox`:实现 optionsFilter searchable 属性。
 - 🌟 `<pro>TextField`: 新增 valueChangeAction、wait、waitType 属性。
 - 🌟 `<pro>Form`: labelWidth 新增 auto 值。
 - 🌟 `<pro>Table`: column 存在 tooltip 属性时列头添加 HTML title。
+- 🌟 `<pro>AutoComplete`: 新增 matcher 属性。
+- 🌟 `<pro>LocaleContext`: 新增 setNumberFormatLanguage 方法。
+- 🌟 `<pro>Tree`: 新增 async 属性，简化异步加载方案。
+- 🌟 `<pro>Table`: 新增 treeAsync 和 treeLoadData 属性，简化异步加载方案。
+- 🌟 `<pro>Table`: 新增 parityRow 和 rowNumber 属性。
+- 💄 优化 TS 枚举类型导出。
 - 💄 `<pro>Table`: 优化性能，修复虚拟滚动无法显示编辑器的问题。
 - 💄 `<pro>DataSet`: 优化性能。
 - 💄 `<pro>Trigger`: 优化性能。
@@ -34,6 +115,8 @@ timeline: true
 - 💄 `<pro>Table`: 扩展 highLightRow 属性支持 focus、click 独立交互。
 - 💄 `<pro>IntlField`: 优化 intl disabled 和 readOnly 的值展现形式。
 - 🐞 `Collapse`: 修复 expandIconPosition 无效问题。
+- 🐞 `<pro>Table`: 修复虚拟滚动在有临时移除的记录时总高度错误的问题。
+- 🐞 `<pro>Table`: 修复全选按钮在其他分页有选择记录显示时点击无效的问题。
 - 🐞 `<pro>Table`: 修复最后一列无法调整列宽的问题。
 - 🐞 `<pro>Table`: 修复拖拽列无法调整列宽的问题。
 - 🐞 `<pro>Table`: 修复过滤条多语言问题。

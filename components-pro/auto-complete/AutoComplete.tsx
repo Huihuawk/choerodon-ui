@@ -1,20 +1,24 @@
 import React, { ReactNode, ReactElement, Key } from 'react';
 import { observer } from 'mobx-react';
-import { omit } from 'lodash';
+import omit from 'lodash/omit';
 import Menu, { Item } from 'choerodon-ui/lib/rc-components/menu';
 import { action } from 'mobx';
 import Record from '../data-set/Record';
-
 import autobind from '../_util/autobind';
-import { getItemKey, Select, SelectProps } from '../select/Select';
+import { getItemKey, MORE_KEY, Select, SelectProps } from '../select/Select';
 import DataSet from '../data-set';
 import { FieldType } from '../data-set/enum';
+import Icon from '../icon';
 
+
+const defaultMatcher = (value: string, inputText: string) => value.indexOf(inputText) !== -1;
 
 export interface AutoCompleteProps extends SelectProps {
+  matcher: (value: string, inputText: string) => boolean;
 }
 
-export class AutoComplete<T extends AutoCompleteProps> extends Select<T> {
+@observer
+export default class AutoComplete<T extends AutoCompleteProps> extends Select<T> {
 
   static displayName = 'AutoComplete';
 
@@ -32,6 +36,7 @@ export class AutoComplete<T extends AutoCompleteProps> extends Select<T> {
     ...Select.defaultProps,
     searchable: true,
     suffixCls: 'auto-complete',
+    matcher: defaultMatcher,
   };
 
   getTriggerIconFont() {
@@ -45,6 +50,7 @@ export class AutoComplete<T extends AutoCompleteProps> extends Select<T> {
   getOtherProps() {
     const otherProps = omit(super.getOtherProps(), [
       'searchable',
+      'matcher',
     ]);
     return otherProps;
   }
@@ -56,7 +62,7 @@ export class AutoComplete<T extends AutoCompleteProps> extends Select<T> {
     super.handleChange(e);
   }
 
-  choose(record?: Record | Record[] | null) {
+  choose(record?: Record | null) {
     this.isChoose = true;
     super.choose(record);
   }
@@ -95,29 +101,30 @@ export class AutoComplete<T extends AutoCompleteProps> extends Select<T> {
       options,
       textField,
       valueField,
-      props: { dropdownMenuStyle, optionRenderer, onOption },
+      props: { dropdownMenuStyle, optionRenderer, onOption, matcher = defaultMatcher },
     } = this;
-    const inputText = this.text || this.inputText;
 
     if (!options) {
       return null;
     }
-    const optGroups: ReactElement<any>[] = [];
     const menuDisabled = this.isDisabled();
+    const optGroups: ReactElement<any>[] = [];
     const selectedKeys: Key[] = [];
+
+    const inputText = this.text || this.inputText;
 
     options.forEach(record => {
 
       const value = record.get(valueField);
       // 判断是否符合自动补全的条件
-      if (inputText && value.indexOf(inputText) === -1) {
+      if (inputText && !matcher(value, inputText)) {
         return;
       }
 
       const text = record.get(textField);
-      const key: Key = getItemKey(record, text, value);
       const optionProps = onOption({ dataSet: options, record });
       const optionDisabled = menuDisabled || (optionProps && optionProps.disabled);
+      const key: Key = getItemKey(record, text, value);
 
       const itemContent = optionRenderer
         ? optionRenderer({ dataSet: this.options, record, text, value })
@@ -134,7 +141,7 @@ export class AutoComplete<T extends AutoCompleteProps> extends Select<T> {
     if (!optGroups.length) {
       return null;
     }
-
+    const menuPrefix = this.getMenuPrefixCls();
     return (
       <Menu
         ref={this.saveMenu}
@@ -142,20 +149,22 @@ export class AutoComplete<T extends AutoCompleteProps> extends Select<T> {
         defaultActiveFirst
         multiple={this.menuMultiple}
         selectedKeys={selectedKeys}
-        prefixCls={this.getMenuPrefixCls()}
+        prefixCls={menuPrefix}
         onClick={this.handleMenuClick}
         style={dropdownMenuStyle}
         focusable={false}
         {...menuProps}
       >
         {optGroups}
+        {
+          options.paging && options.currentPage < options.totalPage && (
+            <Item key={MORE_KEY} checkable={false} className={`${menuPrefix}-item-more`}>
+              <Icon type="more_horiz" />
+            </Item>
+          )
+        }
       </Menu>
     );
   }
 
-}
-
-@observer
-export default class ObserverAutoComplete extends AutoComplete<AutoCompleteProps> {
-  static defaultProps = AutoComplete.defaultProps;
 }

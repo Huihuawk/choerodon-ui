@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { action } from 'mobx';
 import KeyCode from 'choerodon-ui/lib/_util/KeyCode';
 import { getConfig } from 'choerodon-ui/lib/configure';
-import { pick } from 'lodash';
+import pick from 'lodash/pick';
 import DataSet from '../data-set/DataSet';
 import Table, { TableProps } from '../table/Table';
 import TableProfessionalBar from '../table/query-bar/TableProfessionalBar';
@@ -54,18 +54,27 @@ export default class LovView extends Component<LovViewProps> {
   getColumns(): ColumnProps[] | undefined {
     const {
       config: { lovItems },
+      tableProps,
     } = this.props;
     return lovItems
       ? lovItems
         .filter(({ gridField }) => gridField === 'Y')
         .sort(({ gridFieldSequence: seq1 }, { gridFieldSequence: seq2 }) => seq1 - seq2)
-        .map<ColumnProps>(({ display, gridFieldName, gridFieldWidth, gridFieldAlign }) => ({
-          key: gridFieldName,
-          header: display,
-          name: gridFieldName,
-          width: gridFieldWidth,
-          align: gridFieldAlign,
-        }))
+        .map<ColumnProps>(({ display, gridFieldName, gridFieldWidth, gridFieldAlign }) => {
+          let column: ColumnProps | undefined = {};
+          if (tableProps && tableProps.columns) {
+            column = tableProps.columns.find(c => c.name === gridFieldName);
+          }
+          return {
+            ...column,
+            key: gridFieldName,
+            header: display,
+            name: gridFieldName,
+            width: gridFieldWidth,
+            align: gridFieldAlign,
+            editor: false,
+          };
+        })
       : undefined;
   }
 
@@ -96,27 +105,22 @@ export default class LovView extends Component<LovViewProps> {
       config: { queryBar },
       tableProps,
     } = this.props;
-    const lovTablePropsConf = getConfig('lovTableProps');
     if (queryBar) {
       return queryBar;
     }
     if (tableProps && tableProps.queryBar) {
       return tableProps.queryBar;
     }
-    return lovTablePropsConf.queryBar;
   };
 
   render() {
     const {
       dataSet,
-      config: { height, treeFlag, queryColumns },
+      config: { height, treeFlag, queryColumns, tableProps: configTableProps },
       multiple,
       tableProps,
     } = this.props;
-    const lovTablePropsConf = getConfig('lovTableProps');
     const lovTableProps: TableProps = {
-      ...lovTablePropsConf,
-      ...tableProps,
       autoFocus: true,
       mode: treeFlag === 'Y' ? TableMode.tree : TableMode.list,
       onKeyDown: this.handleKeyDown,
@@ -124,6 +128,8 @@ export default class LovView extends Component<LovViewProps> {
       columns: this.getColumns(),
       queryFieldsLimit: queryColumns,
       queryBar: this.getQueryBar(),
+      ...configTableProps,
+      ...tableProps,
     };
 
     if (multiple) {
@@ -144,7 +150,7 @@ export default class LovView extends Component<LovViewProps> {
 
     // 优化优先级 让 部分tableProps属性 的优先级大于dataSet的设置
     // 目前需要处理 selectionMode
-    Object.assign(lovTableProps, pick({ ...lovTablePropsConf, ...tableProps }, [
+    Object.assign(lovTableProps, pick({ ...tableProps }, [
       'selectionMode',
     ]));
 

@@ -1,18 +1,17 @@
 import React, { Component, Key, ReactNode } from 'react';
 import { action, get, set } from 'mobx';
 import { observer } from 'mobx-react';
-import { DroppableProvided } from 'react-beautiful-dnd';
 import { pxToRem } from 'choerodon-ui/lib/_util/UnitConvertor';
 import ResizeObservedRow from './ResizeObservedRow';
 import { ColumnLock } from './enum';
 import ColumnGroup from './ColumnGroup';
 import TableContext from './TableContext';
 import autobind from '../_util/autobind';
+import { isStickySupport } from './utils';
 
 export interface TableHeaderRowProps {
   rowIndex: number;
   lock?: ColumnLock | boolean;
-  droppableProvided?: DroppableProvided;
   tds: ReactNode,
   rows: ColumnGroup[][],
 }
@@ -41,12 +40,8 @@ export default class TableHeaderRow extends Component<TableHeaderRowProps> {
   getHeaderRowStyle(
     rows: ColumnGroup[][],
     rowIndex: number,
-    columnResizable: boolean,
   ): string | number | undefined {
-    const {
-      tableStore: { rowHeight },
-    } = this.context;
-    const height = rowHeight === 'auto' ? this.getRowHeight(rowIndex++) : rowHeight;
+    const height = this.getRowHeight(rowIndex++);
     return pxToRem(
       rows
         .slice(rowIndex)
@@ -55,33 +50,29 @@ export default class TableHeaderRow extends Component<TableHeaderRowProps> {
             r.length
               ? total
               : total +
-              (rowHeight === 'auto'
-                ? this.getRowHeight(index + rowIndex)
-                : rowHeight + (columnResizable ? 4 : 3)),
+              this.getRowHeight(index + rowIndex),
           height,
         ),
     );
   }
 
   render() {
-    const { rowIndex, lock, tds, rows, droppableProvided } = this.props;
+    const { rowIndex, lock, tds, rows } = this.props;
     const {
-      tableStore: { rowHeight, columnResizable },
+      tableStore: { rowHeight },
     } = this.context;
+    const needStoreRowHeight = !isStickySupport() && (rowHeight === 'auto' || rows.length > 1);
     const tr = (
       <tr
         style={{
-          height: lock ? this.getHeaderRowStyle(rows, rowIndex, columnResizable) : undefined,
+          height: lock && needStoreRowHeight ? this.getHeaderRowStyle(rows, rowIndex) : undefined,
         }}
-        ref={droppableProvided && droppableProvided.innerRef}
-        {...(droppableProvided && droppableProvided.droppableProps)}
       >
         {tds}
-        {droppableProvided && droppableProvided.placeholder}
       </tr>
     );
 
-    return !lock && rowHeight === 'auto' ? (
+    return !lock && needStoreRowHeight ? (
       <ResizeObservedRow onResize={this.handleResize} rowIndex={rowIndex}>
         {tr}
       </ResizeObservedRow>

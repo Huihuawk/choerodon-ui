@@ -7,6 +7,7 @@ import CopyToClipboard from 'react-copy-to-clipboard';
 import classNames from 'classnames';
 import LZString from 'lz-string';
 import { Icon, Tooltip } from 'choerodon-ui';
+import ReactIntersectionObserver from 'react-intersection-observer';
 import stackblitzSdk from '@stackblitz/sdk';
 import EditButton from './EditButton';
 import BrowserFrame from '../BrowserFrame';
@@ -212,7 +213,7 @@ import 'choerodon-ui/dist/choerodon-ui.css';
 import 'choerodon-ui/dist/choerodon-ui-pro.css';
 import 'choerodon-ui/dist/choerodon-ui-demo-data-mock.min.js';
 import './index.css';
-${state.sourceCode.replace('mountNode', "document.getElementById('container')")}
+${state.sourceCode.replace('mountNode', 'document.getElementById(\'container\')')}
           `,
         },
         'index.html': {
@@ -233,17 +234,23 @@ import 'choerodon-ui/dist/choerodon-ui.css';
 import 'choerodon-ui/dist/choerodon-ui-pro.css';
 import 'choerodon-ui/dist/choerodon-ui-demo-data-mock.min.js';
 import './index.css';
-${state.sourceCode.replace('mountNode', "document.getElementById('container')")}
+${state.sourceCode.replace('mountNode', 'document.getElementById(\'container\')')}
           `,
         'index.html': html,
       },
     };
     return (
       <section className={codeBoxClass} id={meta.id}>
-        <section className="code-box-demo">
-          {React.cloneElement(this.liveDemo, { key: state.refreshKey })}
-          {style ? <style dangerouslySetInnerHTML={{ __html: style }} /> : null}
-        </section>
+        <ReactIntersectionObserver triggerOnce>
+          {
+            ({ inView, ref }) => (
+              <section ref={ref} className="code-box-demo" style={inView ? undefined : { minHeight: 300 }}>
+                {inView && React.cloneElement(this.liveDemo, { key: state.refreshKey })}
+                {style ? <style dangerouslySetInnerHTML={{ __html: style }} /> : null}
+              </section>
+            )
+          }
+        </ReactIntersectionObserver>
         <section className="code-box-meta markdown">
           <div className="code-box-title">
             <a href={`#${meta.id}`} ref={this.saveAnchor}>

@@ -1,17 +1,16 @@
 import React, { FunctionComponent, ReactElement, useContext, useMemo } from 'react';
 import { observer } from 'mobx-react-lite';
 import TableContext from './TableContext';
-import TableWrapper from './TableWrapper';
+import { TableWrapperProps } from './TableWrapper';
 
 export interface VirtualWrapperProps {
-  prefixCls?: string;
-  children?: ReactElement<TableWrapper>
+  children?: ReactElement<TableWrapperProps>
 }
 
 const VirtualWrapper: FunctionComponent<VirtualWrapperProps> = observer((props) => {
-  const { children, prefixCls } = props;
+  const { children } = props;
   const {
-    tableStore: { virtualTop, virtualHeight },
+    tableStore: { virtualTop, virtualHeight, prefixCls },
   } = useContext(TableContext);
   const style = useMemo(() => ({ transform: `translate(0, ${virtualTop}px)` }), [virtualTop]);
   return (

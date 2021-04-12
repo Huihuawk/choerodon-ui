@@ -21,6 +21,8 @@ import { $l } from '../locale-context';
 import { FieldType } from '../data-set/enum';
 import { ValidatorProps } from '../validator/rules';
 import defaultFormatNumber from '../formatter/formatNumber';
+import { Lang } from '../locale-context/enum';
+import localeContext from '../locale-context/LocaleContext';
 
 function getCurrentValidValue(value: string): number {
   return Number(value.replace(/\.$/, '')) || 0;
@@ -66,7 +68,15 @@ export interface NumberFieldProps extends TextFieldProps {
   /**
    *是否长按按钮按步距增加
    */
-  longPressPlus: boolean;
+  longPressPlus?: boolean;
+  /**
+   * 小数点精度
+   */
+  precision?: number;
+  /**
+   * 千分位分组显示
+   */
+  numberGrouping?: boolean;
 }
 
 export class NumberField<T extends NumberFieldProps> extends TextField<T & NumberFieldProps> {
@@ -99,7 +109,7 @@ export class NumberField<T extends NumberFieldProps> extends TextField<T & Numbe
     longPressPlus: PropTypes.bool,
     /**
      * 是否开启长按步距增加
-    */
+     */
     formatterOptions: PropTypes.object,
     ...TextField.propTypes,
   };
@@ -111,6 +121,27 @@ export class NumberField<T extends NumberFieldProps> extends TextField<T & Numbe
   };
 
   static format = defaultFormatNumber;
+
+  plusElement?: HTMLDivElement | null;
+
+  minusElement?: HTMLDivElement | null;
+
+  @computed
+  get lang(): Lang {
+    const { lang } = this.observableProps;
+    if (lang) {
+      return lang;
+    }
+    const { dataSet } = this;
+    if (dataSet && dataSet.lang) {
+      return dataSet.lang;
+    }
+    const { numberFormatLanguage, locale } = localeContext;
+    if (numberFormatLanguage) {
+      return numberFormatLanguage;
+    }
+    return locale.lang;
+  }
 
   @computed
   get defaultValidationMessages(): ValidationMessages {
@@ -187,6 +218,16 @@ export class NumberField<T extends NumberFieldProps> extends TextField<T & Numbe
     });
   }
 
+  @autobind
+  savePlusRef(ref) {
+    this.plusElement = ref;
+  }
+
+  @autobind
+  saveMinusRef(ref) {
+    this.minusElement = ref;
+  }
+
   isLowerRange(value1: number, value2: number): boolean {
     return value1 < value2;
   }
@@ -226,22 +267,26 @@ export class NumberField<T extends NumberFieldProps> extends TextField<T & Numbe
     const { longPressPlus } = this.props;
     const step = this.getProp('step');
     if (step && !range && !this.isReadOnly()) {
-      const plusIconProps = {
+      const plusIconProps: any = {
+        ref: this.savePlusRef,
         key: 'plus',
-        type: 'keyboard_arrow_up',
         className: `${prefixCls}-plus`,
         onMouseDown: longPressPlus ? this.handlePlus : this.handleOncePlus,
       };
-      const minIconProps = {
+      const minIconProps: any = {
+        ref: this.saveMinusRef,
         key: 'minus',
-        type: 'keyboard_arrow_down',
         className: `${prefixCls}-minus`,
         onMouseDown: longPressPlus ? this.handleMinus : this.handleOnceMinus,
       };
       return this.wrapperInnerSpanButton(
         <div>
-          <Icon {...plusIconProps} />
-          <Icon {...minIconProps} />
+          <div {...plusIconProps}>
+            <Icon type="keyboard_arrow_up" />
+          </div>
+          <div {...minIconProps}>
+            <Icon type="keyboard_arrow_down" />
+          </div>
         </div>,
       );
     }
@@ -289,14 +334,18 @@ export class NumberField<T extends NumberFieldProps> extends TextField<T & Numbe
     }
   }
 
-  @keepRunning
-  handlePlus() {
-    this.step(true);
+  @keepRunning(function () {
+    return this.plusElement;
+  })
+  handlePlus(_e, isKeeping) {
+    this.step(true, isKeeping);
   }
 
-  @keepRunning
-  handleMinus() {
-    this.step(false);
+  @keepRunning(function () {
+    return this.minusElement;
+  })
+  handleMinus(_e, isKeeping) {
+    this.step(false, isKeeping);
   }
 
   @autobind
@@ -315,11 +364,13 @@ export class NumberField<T extends NumberFieldProps> extends TextField<T & Numbe
       'formatter',
       'formatterOptions',
       'longPressPlus',
+      'precision',
+      'numberGrouping',
     ]);
     return otherProps;
   }
 
-  step(isPlus: boolean) {
+  step(isPlus: boolean, isKeeping?: boolean) {
     const min = defaultTo(this.min, -MAX_SAFE_INTEGER);
     const max = defaultTo(this.max, MAX_SAFE_INTEGER);
     const step = defaultTo(this.getProp('step'), 1);
@@ -364,7 +415,7 @@ export class NumberField<T extends NumberFieldProps> extends TextField<T & Numbe
     // 不要进行对比操作,在table中使用的时候,因为NumberField会作为editor使用,所以在 对第一个cell只点击一次的情况下(例如plus)
     // 此时切换到第二个cell进行编辑，无法进行上次操作(同上次的plus)
     // this.value !== newValue
-    if (this.multiple) {
+    if (this.multiple || isKeeping) {
       this.setText(String(newValue));
     } else {
       this.prepareSetValue(newValue);
@@ -396,28 +447,30 @@ export class NumberField<T extends NumberFieldProps> extends TextField<T & Numbe
   }
 
   getFormatOptions(value?: number): FormatNumberFuncOptions {
-    const precision = getPrecision(isNil(value) ? this.getValue() || 0 : value);
-    const defaultOptions = {
-      lang: this.lang,
-      options: {
-        minimumFractionDigits: precision,
-        maximumFractionDigits: precision,
-      },
-    };
-
+    const precisionInValue = getPrecision(isNil(value) ? this.getValue() || 0 : value);
     const formatterOptions: FormatNumberFuncOptions = this.getProp('formatterOptions') || {};
     const numberFieldFormatterOptions: FormatNumberFuncOptions = getConfig('numberFieldFormatterOptions') || {};
-    if (formatterOptions) {
-      return {
-        lang: formatterOptions.lang || numberFieldFormatterOptions.lang || defaultOptions.lang,
-        options: {
-          ...defaultOptions.options,
-          ...numberFieldFormatterOptions.options,
-          ...formatterOptions.options,
-        },
-      };
+    const lang = formatterOptions.lang || numberFieldFormatterOptions.lang || this.lang;
+    const options: Intl.NumberFormatOptions = {
+      minimumFractionDigits: precisionInValue,
+      maximumFractionDigits: precisionInValue,
+      ...numberFieldFormatterOptions.options,
+      ...formatterOptions.options,
+    };
+
+    const precision = this.getProp('precision');
+    const numberGrouping = this.getProp('numberGrouping');
+    if (isNumber(precision)) {
+      options.minimumFractionDigits = precision;
+      options.maximumFractionDigits = precision;
     }
-    return defaultOptions;
+    if (numberGrouping === false) {
+      options.useGrouping = false;
+    }
+    return {
+      lang,
+      options,
+    };
   }
 
   getFormatter() {

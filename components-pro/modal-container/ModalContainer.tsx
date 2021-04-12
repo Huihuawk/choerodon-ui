@@ -8,7 +8,7 @@ import EventManager from 'choerodon-ui/lib/_util/EventManager';
 import measureScrollbar from 'choerodon-ui/lib/_util/measureScrollbar';
 import { pxToRem } from 'choerodon-ui/lib/_util/UnitConvertor';
 import warning from 'choerodon-ui/lib/_util/warning';
-import { getProPrefixCls } from 'choerodon-ui/lib/configure';
+import { getConfig, getProPrefixCls } from 'choerodon-ui/lib/configure';
 import ModalManager, { DrawerOffsets, IModalContainer } from '../modal-manager';
 import Modal, { ModalProps } from '../modal/Modal';
 import Animate from '../animate';
@@ -198,7 +198,7 @@ export default class ModalContainer extends Component<ModalContainerProps> imple
     const { modals } = this.state;
     const modal = findLast(modals, ({ hidden }) => !hidden);
     if (modal) {
-      const { close = noop, onCancel = noop, maskClosable } = modal;
+      const { close = noop, onCancel = noop, maskClosable = getConfig('modalMaskClosable') } = modal;
       if (maskClosable) {
         const ret = await onCancel();
         if (ret !== false) {
@@ -305,7 +305,7 @@ export default class ModalContainer extends Component<ModalContainerProps> imple
     const indexes = { 'slide-up': 1, 'slide-right': 1, 'slide-down': 1, 'slide-left': 1 };
     let activeModal: ModalProps | undefined;
     const items = modals.map((props, index) => {
-      const { drawerTransitionName, drawer, key } = props;
+      const { drawerTransitionName = getConfig('drawerTransitionName'), drawer, key } = props;
       const style: CSSProperties = {
         ...props.style,
       };
@@ -357,6 +357,15 @@ export default class ModalContainer extends Component<ModalContainerProps> imple
         hideBodyScrollBar(body);
       }
     }
+    const eventProps: any = {};
+    if (activeModal && activeModal.mask) {
+      const { maskClosable = getConfig('modalMaskClosable') } = activeModal;
+      if (maskClosable === 'dblclick') {
+        eventProps.onDoubleClick = this.handleMaskClick;
+      } else {
+        eventProps.onClick = this.handleMaskClick;
+      }
+    }
     return (
       <>
         <Animate
@@ -368,7 +377,7 @@ export default class ModalContainer extends Component<ModalContainerProps> imple
         >
           {
             activeModal && activeModal.mask ? (
-              <Mask style={activeModal.maskStyle} className={activeModal.maskClassName} hidden={hidden} onClick={this.handleMaskClick} onMouseDown={stopEvent} />
+              <Mask style={activeModal.maskStyle} className={activeModal.maskClassName} hidden={hidden} {...eventProps} onMouseDown={stopEvent} />
             ) : <div hidden={hidden} />
           }
         </Animate>

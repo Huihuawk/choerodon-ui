@@ -2,7 +2,7 @@ import { Component, CSSProperties, FocusEventHandler, Key, KeyboardEventHandler,
 import { findDOMNode } from 'react-dom';
 import classNames from 'classnames';
 import PropTypes from 'prop-types';
-import { action, observable } from 'mobx';
+import { action, computed, observable } from 'mobx';
 import omit from 'lodash/omit';
 import defer from 'lodash/defer';
 import merge from 'lodash/merge';
@@ -288,6 +288,8 @@ export default class ViewComponent<P extends ViewComponentProps> extends Compone
 
   element: any;
 
+  height: number | string | undefined;
+
   wrapper: any;
 
   isFocus: boolean;
@@ -301,10 +303,11 @@ export default class ViewComponent<P extends ViewComponentProps> extends Compone
     return getProPrefixCls(suffixCls!, prefixCls);
   }
 
+  @computed
   get lang(): Lang {
-    const { lang } = this.props;
+    const { lang } = this.observableProps;
     if (lang) {
-      return lang!;
+      return lang;
     }
     return localeContext.locale.lang;
   }
@@ -325,8 +328,10 @@ export default class ViewComponent<P extends ViewComponentProps> extends Compone
     };
   }
 
-  getObservableProps(_props, _context: any) {
-    return {};
+  getObservableProps(props, _context: any) {
+    return {
+      lang: props.lang,
+    };
   }
 
   @action
@@ -381,8 +386,14 @@ export default class ViewComponent<P extends ViewComponentProps> extends Compone
     otherProps.ref = this.elementReference;
     otherProps.disabled = this.isDisabled();
     otherProps.className = this.getClassName();
-    if ('height' in style) {
-      otherProps.style = { height: style.height };
+    otherProps.style = {};
+    if (this.height) {
+      otherProps.style.height = this.height;
+    } else if ('height' in style) {
+      otherProps.style.height = style.height;
+    }
+    if ('minHeight' in style) {
+      otherProps.style.minHeight = style.minHeight;
     }
     otherProps.lang = normalizeLanguage(lang);
     return otherProps;
@@ -405,7 +416,7 @@ export default class ViewComponent<P extends ViewComponentProps> extends Compone
       ...props,
     };
     if (style) {
-      wrapperProps.style = omit(style, 'height');
+      wrapperProps.style = omit(style, ['height', 'minHeight']);
     }
     return wrapperProps;
   }
@@ -442,11 +453,11 @@ export default class ViewComponent<P extends ViewComponentProps> extends Compone
       props: { onFocus = noop },
       prefixCls,
     } = this;
-    onFocus(e);
     const element = this.wrapper || findDOMNode(this);
     if (element) {
       classes(element).add(`${prefixCls}-focused`);
     }
+    onFocus(e);
   }
 
   @autobind
@@ -502,4 +513,13 @@ export default class ViewComponent<P extends ViewComponentProps> extends Compone
       defer(() => this.focus());
     }
   }
+
+  setHeight(height) {
+    this.height = height;
+    const { element } = this;
+    if (element) {
+      element.style.height = height;
+    }
+  }
+
 }

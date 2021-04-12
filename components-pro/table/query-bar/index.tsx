@@ -1,4 +1,4 @@
-import React, { cloneElement, Component, isValidElement, MouseEventHandler, ReactElement, ReactNode } from 'react';
+import React, { cloneElement, useState, Component, isValidElement, MouseEventHandler, ReactElement, ReactNode } from 'react';
 import { observer } from 'mobx-react';
 import { action, isArrayLike, observable } from 'mobx';
 import isObject from 'lodash/isObject';
@@ -7,10 +7,9 @@ import isNumber from 'lodash/isNumber';
 import reduce from 'lodash/reduce';
 import { pxToRem } from 'choerodon-ui/lib/_util/UnitConvertor';
 import { getConfig } from 'choerodon-ui/lib/configure';
-import Row from 'choerodon-ui/lib/row';
-import Col from 'choerodon-ui/lib/col';
 import Icon from 'choerodon-ui/lib/icon';
 import { DropDownProps } from 'choerodon-ui/lib/dropdown';
+import { ProgressStatus } from 'choerodon-ui/lib/progress/enum'
 import { TableButtonType, TableQueryBarType } from '../enum';
 import TableButtons from './TableButtons';
 import Table, {
@@ -23,13 +22,14 @@ import Table, {
   TableQueryBarHookProps,
 } from '../Table';
 import Button, { ButtonProps } from '../../button/Button';
-import { ButtonType } from '../../button/enum';
-import { DataSetStatus, ExportMode, FieldType } from '../../data-set/enum';
+import { ButtonType, ButtonColor } from '../../button/enum';
+import { DataSetStatus, FieldType, DataSetExportStatus } from '../../data-set/enum';
 import { $l } from '../../locale-context';
 import TableContext from '../TableContext';
 import autobind from '../../_util/autobind';
 import DataSet from '../../data-set';
 import Modal from '../../modal';
+import Progress from '../../progress';
 import Column from '../Column';
 import { getEditorByField } from '../utils';
 import TableToolBar from './TableToolBar';
@@ -38,13 +38,13 @@ import TableAdvancedQueryBar from './TableAdvancedQueryBar';
 import TableProfessionalBar from './TableProfessionalBar';
 import TableDynamicFilterBar from './TableDynamicFilterBar';
 import { PaginationProps } from '../../pagination/Pagination';
-import { findBindFieldBy } from '../../data-set/utils';
-import NumberField from '../../number-field';
+import { findBindFieldBy, exportExcel } from '../../data-set/utils';
 import Dropdown from '../../dropdown/Dropdown';
 import Menu from '../../menu';
+import TextField from '../../text-field';
+
 
 export interface TableQueryBarProps {
-  prefixCls?: string;
   buttons?: Buttons[];
   queryFields?: { [key: string]: ReactElement<any> };
   queryFieldsLimit?: number;
@@ -55,7 +55,94 @@ export interface TableQueryBarProps {
   dynamicFilterBar?: DynamicFilterBarConfig;
   filterBarFieldName?: string;
   filterBarPlaceholder?: string;
+  clientExportQuantity?: number;
 }
+
+const ExportBody = observer((props) => {
+  const { dataSet, prefixCls } = props;
+  let exportMessage = $l('Table', 'export_ing')
+  let exportProgress = {
+    percent: 1,
+    status: ProgressStatus.active,
+  }
+
+  switch (dataSet.exportStatus) {
+    case DataSetExportStatus.start:
+      exportProgress = {
+        percent: 1,
+        status: ProgressStatus.active,
+      }
+      break;
+    case DataSetExportStatus.exporting:
+      exportProgress = {
+        percent: 20,
+        status: ProgressStatus.active,
+      }
+      break;
+    case DataSetExportStatus.progressing:
+      exportProgress = {
+        percent: 50,
+        status: ProgressStatus.active,
+      }
+      break;
+    case DataSetExportStatus.failed:
+      exportMessage = $l('Table', 'export_failed')
+      exportProgress = {
+        percent: 50,
+        status: ProgressStatus.exception,
+      }
+      break;
+    case DataSetExportStatus.success:
+      exportMessage = $l('Table', 'export_success');
+      exportProgress = {
+        percent: 100,
+        status: ProgressStatus.success,
+      };
+      break;
+    default:
+      break;
+  }
+
+  return (
+    <div className={`${prefixCls}-export-progress-body`}>
+      <span>
+        {exportMessage}
+      </span>
+      <Progress {...exportProgress} />
+    </div>
+  )
+})
+
+const ExportFooter = observer((props) => {
+  const { dataSet, prefixCls, exportButton } = props;
+  const [username, setUsername] = useState(dataSet.name || $l('Table', 'defalut_export'));
+  const handleClick = () => { exportButton(dataSet.exportStatus, username) };
+  const [messageTimeout, setMessageTimeout] = useState<string | undefined>(undefined);
+
+  React.useEffect(() => {
+    let currentTimeout: any = null;
+    currentTimeout = setTimeout(() => {
+      if (dataSet && dataSet.exportStatus !== DataSetExportStatus.success && dataSet.exportStatus !== DataSetExportStatus.failed) {
+        setMessageTimeout($l('Table', 'export_waiting'));
+      }
+    }, 5000);
+    return () => {
+      if (currentTimeout) {
+        clearTimeout(currentTimeout);
+      }
+    };
+  }, []);
+  return (
+    <div className={`${prefixCls}-export-progress-footer`}>
+      { dataSet.exportStatus === DataSetExportStatus.failed && <><span>{$l('Table', 'export_break')}</span><Button onClick={handleClick}>{$l('Table', 'retry_button')}</Button></>}
+      { dataSet.exportStatus === DataSetExportStatus.success && <><div><span>{`${$l('Table', 'file_name')}:`}</span><TextField value={username} onChange={(value) => { setUsername(value) }} /></div><Button color={ButtonColor.primary} onClick={handleClick}>{$l('Table', 'download_button')}</Button></>}
+      { dataSet.exportStatus !== DataSetExportStatus.success &&
+        dataSet.exportStatus !== DataSetExportStatus.failed &&
+        <><span>{messageTimeout || $l('Table', 'export_operating')}</span><Button color={ButtonColor.gray} onClick={handleClick}>{$l('Table', 'cancel_button')}</Button></>
+      }
+    </div>
+  )
+})
 
 @observer
 export default class TableQueryBar extends Component<TableQueryBarProps> {
@@ -67,7 +154,8 @@ export default class TableQueryBar extends Component<TableQueryBarProps> {
 
   exportDataSet: DataSet;
 
-  exportQuantity: number;
+
+  exportData: any;
 
   /**
    * 多行汇总
@@ -166,13 +254,8 @@ export default class TableQueryBar extends Component<TableQueryBarProps> {
   async handleButtonExport() {
     const { tableStore } = this.context;
     const columnHeaders = await tableStore.getColumnHeaders();
-    const changeQuantity = (value: number) => {
-      this.exportQuantity = value;
-    };
-    const { prefixCls } = this.props;
     this.exportDataSet = new DataSet({ data: columnHeaders, paging: false });
     this.exportDataSet.selectAll();
-    this.exportQuantity = tableStore.dataSet.totalCount;
     this.exportModal = Modal.open({
       title: $l('Table', 'choose_export_columns'),
       children: (
@@ -180,19 +263,6 @@ export default class TableQueryBar extends Component<TableQueryBarProps> {
           <Table dataSet={this.exportDataSet} style={{ height: pxToRem(300) }}>
             <Column header={$l('Table', 'column_name')} name="label" resizable={false} />
           </Table>
-          {
-            tableStore.dataSet.exportMode === ExportMode.client
-              ? (
-                <Row className={`${prefixCls}-export-quantity`}>
-                  <Col span={11}>
-                    <span>{$l('Table', 'max_export')}</span>
-                  </Col>
-                  <Col span={13}>
-                    <NumberField onChange={changeQuantity} defaultValue={this.exportQuantity} max={1000} clearButton min={0} step={1} />
-                  </Col>
-                </Row>
-              ) : undefined
-          }
         </>
       ),
       closable: true,
@@ -215,10 +285,14 @@ export default class TableQueryBar extends Component<TableQueryBarProps> {
   @autobind
   handleExport() {
     const { selected } = this.exportDataSet;
+    const {
+      props: { clientExportQuantity },
+      context: {
+        tableStore: { prefixCls, dataSet },
+      },
+    } = this;
     if (selected.length) {
-      const {
-        tableStore: { dataSet },
-      } = this.context;
+      const { exportModal } = this;
       dataSet.export(
         selected.reduce((columns, record) => {
           let myName = record.get('name');
@@ -232,11 +306,44 @@ export default class TableQueryBar extends Component<TableQueryBarProps> {
           columns[myName] = record.get('label');
           return columns;
         }, {}),
-        this.exportQuantity,
-      );
-    } else {
-      return false;
+        clientExportQuantity,
+      ).then((exportData) => {
+        this.exportData = exportData;
+      })
+      if (exportModal) {
+        exportModal.update(
+          {
+            title: $l('Table', 'export_button'),
+            children: (
+              <ExportBody prefixCls={prefixCls} dataSet={dataSet} />
+            ),
+            footer: <ExportFooter prefixCls={prefixCls} exportButton={this.handleExportButton} exportModal={exportModal} dataSet={dataSet} />,
+          });
+      }
     }
+    return false;
+  }
+
+  @autobind
+  @action
+  handleExportButton(data: DataSetExportStatus, filename?: string) {
+    const {
+      tableStore: { dataSet },
+    } = this.context;
+    if (data === DataSetExportStatus.success) {
+      if (this.exportData) {
+        exportExcel(this.exportData, filename)
+        this.exportModal.close();
+        this.exportData = null;
+      }
+    } else if (data === DataSetExportStatus.failed) {
+      this.exportData = null;
+      this.handleExport()
+    } else {
+      this.exportModal.close();
+      this.exportData = null;
+    }
+    dataSet.exportStatus = undefined;
   }
 
   getButtonProps(
@@ -317,9 +424,9 @@ export default class TableQueryBar extends Component<TableQueryBarProps> {
    */
   renderSummary(summary) {
     const {
-      props: { prefixCls, summaryBar, summaryFieldsLimit = 3 },
+      props: { summaryBar, summaryFieldsLimit = 3 },
       context: {
-        tableStore: { dataSet },
+        tableStore: { prefixCls, dataSet },
       },
     } = this;
     const fieldTypeArr = [FieldType.currency, FieldType.number];
@@ -389,7 +496,7 @@ export default class TableQueryBar extends Component<TableQueryBarProps> {
    * @param summary
    */
   getMoreSummaryButton(summary) {
-    const { prefixCls } = this.props;
+    const { tableStore: { prefixCls } } = this.context;
 
     if (summary.length) {
       return (
@@ -413,11 +520,10 @@ export default class TableQueryBar extends Component<TableQueryBarProps> {
       props: {
         buttons,
         summaryBar,
-        prefixCls,
         summaryFieldsLimit,
       },
       context: {
-        tableStore: { queryBar },
+        tableStore: { prefixCls, queryBar },
       },
     } = this;
 
@@ -446,7 +552,8 @@ export default class TableQueryBar extends Component<TableQueryBarProps> {
    * 汇总条存在下 buttons 大于4个放入下拉
    */
   getMoreButton() {
-    const { buttons, prefixCls } = this.props;
+    const { buttons } = this.props;
+    const { tableStore: { prefixCls } } = this.context;
     const tableButtonProps = getConfig('tableButtonProps');
     const children: ReactElement<ButtonProps | DropDownProps>[] = [];
     if (buttons && buttons.length) {
@@ -603,13 +710,14 @@ export default class TableQueryBar extends Component<TableQueryBarProps> {
   }
 
   renderToolBar(props: TableQueryBarHookProps) {
-    const { prefixCls } = this.props;
+    const { tableStore: { prefixCls } } = this.context;
     return <TableToolBar key="toolbar" prefixCls={prefixCls} {...props} />;
   }
 
   renderFilterBar(props: TableQueryBarHookProps) {
+    const { tableStore: { prefixCls } } = this.context;
     const {
-      props: { prefixCls, filterBarFieldName, filterBarPlaceholder },
+      props: { filterBarFieldName, filterBarPlaceholder },
     } = this;
     return (
       <TableFilterBar
@@ -623,17 +731,18 @@ export default class TableQueryBar extends Component<TableQueryBarProps> {
   }
 
   renderAdvancedQueryBar(props: TableQueryBarHookProps) {
-    const { prefixCls } = this.props;
+    const { tableStore: { prefixCls } } = this.context;
     return <TableAdvancedQueryBar key="toolbar" prefixCls={prefixCls} {...props} />;
   }
 
   renderProfessionalBar(props: TableQueryBarHookProps) {
-    const { prefixCls } = this.props;
+    const { tableStore: { prefixCls } } = this.context;
     return <TableProfessionalBar key="toolbar" prefixCls={prefixCls} {...props} />;
   }
 
   renderDynamicFilterBar(props: TableQueryBarHookProps) {
-    const { prefixCls, dynamicFilterBar } = this.props;
+    const { dynamicFilterBar } = this.props;
+    const { tableStore: { prefixCls } } = this.context;
     return <TableDynamicFilterBar key="toolbar" dynamicFilterBar={dynamicFilterBar} prefixCls={prefixCls} {...props} />;
   }
 
@@ -642,9 +751,9 @@ export default class TableQueryBar extends Component<TableQueryBarProps> {
     const summaryBar = this.getSummaryBar();
     const {
       context: {
-        tableStore: { dataSet, queryBar },
+        tableStore: { dataSet, queryBar, prefixCls },
       },
-      props: { queryFieldsLimit, summaryFieldsLimit, prefixCls, pagination },
+      props: { queryFieldsLimit, summaryFieldsLimit, pagination },
       showQueryBar,
     } = this;
     if (showQueryBar) {

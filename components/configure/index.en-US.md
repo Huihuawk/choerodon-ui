@@ -31,7 +31,6 @@ const prefixCls = getConfig('prefixCls');
 | lovDefineAxiosConfig | hook for Lov configure axios config, more info: [AxiosRequestConfig](#AxiosRequestConfig). By default, url is lovDefineUrl and method is post. | AxiosRequestConfig \| (code: string) => AxiosRequestConfig | - |
 | lovQueryUrl | Lov query url or hook which return url | string \| ((code: string, lovConfig?: LovConfig, { dataSet, params, data }) => string) | code => \`/common/lov/dataset/\${code}\` |
 | lovQueryAxiosConfig | hook for Lov query axios config, more info: [AxiosRequestConfig](#AxiosRequestConfig). By default, url is lovQueryUrl and method is post. | AxiosRequestConfig \| (code: string, lovConfig?: LovConfig, { dataSet, params, data }) => AxiosRequestConfig | - |
-| lovTriggerMode | Lov Trigger Mode. | string | icon |
 | lovModalProps | Lov 弹窗属性，详见[ModalProps](/components/modal/#Modal) | ModalProps |  |
 | lookupBatchAxiosConfig | hook for batch lookup query, more info:[AxiosRequestConfig](#AxiosRequestConfig)。 | (codes: string[]) => AxiosRequestConfig | - |
 | selectReverse | Whether to enable the pull-down multi-select reverse function. | boolean | true |
@@ -46,34 +45,45 @@ const prefixCls = getConfig('prefixCls');
 | tableBorder | default table's border | boolean | true |
 | tableHighLightRow | Default Table current line highlight | boolean | true |
 | tableSelectedHighLightRow | Default Table selected line highlight | boolean | false |
+| tableParityRow | Default Table parity line | boolean |  |
 | tableRowHeight | Default Table row height | auto \| number | 30 |
-| tableColumnResizable | Default Table column resizable | boolean | true |
 | tableExpandIcon | Default Table custom expansion icon | ({ prefixCls, expanded, expandable, needIndentSpaced, record, onExpand }) => ReactNode |  |
 | tableSpinProps | Default Table spin props | SpinProps | { size: Size.default, wrapperClassName: '' } |
 | tableButtonProps | Default Table button props | ButtonProps | { color: 'primary', funcType: 'flat' } |
 | tableCommandProps | Default Table command props | ButtonProps | { color: 'primary', funcType: 'flat' } |
 | tableDefaultRenderer | Default Table empty renderer | ReactNode | '' |
+| tableShowSelectionTips | Table默认显示选中记录提示 | boolean | false |
 | tableAlwaysShowRowBox | Table是否一直显示rowbox,开启后在其他模式下也会显示rowbox | boolean | false |
 | tableUseMouseBatchChoose | Table是否使用鼠标批量选择,开启后在rowbox的情况下可以进行鼠标拖动批量选择,在起始的rowbox处按下,在结束位置松开 | boolean | false || pagination | 默认 pagination 的属性 | TablePaginationConfig \| false | 详见[Pagination](/components-pro/pagination/#Pagination) |
 | tableEditorNextKeyEnterDown | Table是否开启可编辑行回车编辑下一行 | boolean | true |
-| tableDragRow | Table是否开启行拖拽 | boolean | false |
-| tableDragColumn | Table是否开启列拖拽 | boolean | false |
-| tableDragColumnAlign | Table列拖拽的模式 | 'left'\|'right' | - |
+| tableColumnResizable | Default Table column resizable | boolean | true |
+| tableColumnHideable | Default Table column hideable | boolean | true |
+| tableColumnTitleEditable | Default Table column title editable | boolean | false |
+| tableColumnDraggable | Default Table column draggable| boolean | false |
+| tableColumnTooltip | Table 是否开启列提示 | TableColumnTooltip | |
+| tableRowDraggable | Default Table row draggable | boolean | false |
+| tableDragColumnAlign | Default align of Table row drag handler | 'left'\|'right' | - |
 | tableAutoFocus | Table 新增行自动聚焦至第一个可编辑字段 | boolean | false |
 | tableKeyboard | Table 开启或关闭新增的快捷按钮事件 | boolean | false |
 | tableFilterAdapter | Table 筛选条请求适配器 | AxiosRequestConfig | |
 | tableFilterSuffix | Table 筛选条按钮预留区 | ReactNode | |
 | tableFilterSearchText | Table 筛选条快速搜索参数名 | string | 'params' |
 | tableAutoHeightDiff | Table 自动高度误差值配置 | number | 80 |
+| tableCustomizedSave | Table 个性化保存的钩子 | (code, customized) => void | (code, customized) => localStorage.setItem(`table.customized.${code}`, JSON.stringify(customized)) |
+| tableCustomizedLoad | Table 个性化加载的钩子 | (code) => Promise | (code) => Promise.resolve(JSON.parse(localStorage.getItem(`table.customized.${code}`) \|\| 'null')) |
+| pagination | 默认 pagination 的属性 | TablePaginationConfig \| false | 详见[Pagination](/components-pro/pagination/#Pagination) |
 | dropdownMatchSelectWidth | 默认下拉框匹配输入框宽度 | boolean | true |
 | modalSectionBorder | Default if Modal header and foot have a border line | boolean | true |
+| drawerSectionBorder | Default if drawer header and foot have a border line | boolean | true |
+| drawerTransitionName | 抽屉模式使用的动画， 可选值： 'slide-right' 'slide-left' 'slide-up' 'slide-down' | string | 'slide-right' |
 | modalOkFirst | Default the ok button of Modal is ranked first | boolean | true |
 | modalKeyboard | Does Modal support keyboard esc off | boolean | true |
 | modalAutoCenter | Whether Modal is centered by default | boolean | false |
+| modalMaskClosable | 点击蒙层是否允许关闭，可选 boolean \| click \| dblclick | boolean \| string | false |
 | drawerOkFirst | The ok button of the default Modal drawer is ranked first, and has a higher priority than modalOkFirst | boolean \| undefined | undefined |
 | buttonFuncType | Default Button function type | string | raised |
 | buttonColor | Default Button color | string | default |
-| renderEmpty | 自定义组件空状态。componentName会接收到的值为 `Table` `Select`,在实现函数的时候需要对这两个输入进行处理,**注意需要同时处理Table以及Select**,默认值参考源代码的[defaultRenderEmpty](https://github.com/choerodon/choerodon-ui/blob/master/components/configure/index.tsx) | (componentName: string) => ReactNode | - |
+| renderEmpty | 自定义组件空状态。componentName会接收到的值为 `Table` `Select`,在实现函数的时候需要对这两个输入进行处理,**注意需要同时处理Table以及Select**,默认值参考源代码的[defaultRenderEmpty](https://github.com/open-hand/choerodon-ui/blob/master/components/configure/index.tsx) | (componentName: string) => ReactNode | - |
 | defaultValidationMessages | Default validation messages. More info: [ValidationMessages](#ValidationMessages) | ValitionMessages | - |
 | generatePageQuery | Hook for Paging Parameter Conversion | ({ page?: number, pageSize?: number, sortName?: string, sortOrder?: string }) => object | - |
 | feedback | The feedback of DataSet for query and submit. More info: [Feedback](/components-pro/data-set/#Feedback) | Feedback |  |

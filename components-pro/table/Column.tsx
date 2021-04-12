@@ -29,9 +29,13 @@ export interface ColumnPropsBase extends ElementProps {
    */
   minWidth?: number;
   /**
+   * 列头文字，优先级高于 header， 便于列头文字通过 header 钩子渲染的情况下可编辑
+   */
+  title?: string;
+  /**
    * 列头
    */
-  header?: ReactNode | ((dataSet: DataSet, name?: string) => ReactNode);
+  header?: ReactNode | ((dataSet: DataSet, name?: string, title?: string) => ReactNode);
   /**
    * 列脚
    */
@@ -44,9 +48,9 @@ export interface ColumnPropsBase extends ElementProps {
    * 编辑器
    */
   editor?:
-  | ReactElement<FormFieldProps>
-  | ((record: Record, name?: string) => ReactElement<FormFieldProps> | boolean)
-  | boolean;
+    | ReactElement<FormFieldProps>
+    | ((record: Record, name?: string) => ReactElement<FormFieldProps> | boolean)
+    | boolean;
   /**
    * 是否锁定
    * 可选值： false | true | 'left' | 'right'
@@ -63,6 +67,10 @@ export interface ColumnPropsBase extends ElementProps {
    * @default true
    */
   resizable?: boolean;
+  /**
+   * 是否可编辑标题
+   */
+  titleEditable?: boolean;
   /**
    * 是否可排序
    * @default false
@@ -115,6 +123,10 @@ export interface ColumnPropsBase extends ElementProps {
    * 给内置按钮加属性：command={[['edit', { color: 'red' }], ...]}
    */
   command?: Commands[] | ((props: commandProps) => Commands[]);
+  /**
+   * 列排序，若无设置则按列数组顺序
+   */
+  sort?: number;
 }
 
 export interface ColumnProps extends ColumnPropsBase {
@@ -216,13 +228,13 @@ export default class Column extends Component<ColumnPropsInner, ComponentState> 
   };
 }
 
-export function minColumnWidth(col) {
+export function minColumnWidth(col): number {
   const hidden = get(col, 'hidden');
   if (hidden) {
     return 0;
   }
-  const width = get(col, 'width');
-  const min = get(col, 'minWidth');
+  const width: number | undefined = get(col, 'width');
+  const min: number | undefined = get(col, 'minWidth');
   const minWidth = min === undefined ? defaultMinWidth : min;
   if (width === undefined) {
     return minWidth;
@@ -230,14 +242,14 @@ export function minColumnWidth(col) {
   return Math.min(width, minWidth);
 }
 
-export function columnWidth(col) {
+export function columnWidth(col): number {
   const hidden = get(col, 'hidden');
   if (hidden) {
     return 0;
   }
-  const width = get(col, 'width');
+  const width: number | undefined = get(col, 'width');
   if (width === undefined) {
-    const minWidth = get(col, 'minWidth');
+    const minWidth: number | undefined = get(col, 'minWidth');
     if (minWidth === undefined) {
       return defaultMinWidth;
     }

@@ -6,6 +6,7 @@ import isString from 'lodash/isString';
 import isEqual from 'lodash/isEqual';
 import isNil from 'lodash/isNil';
 import noop from 'lodash/noop';
+import defer from "lodash/defer";
 import isPlainObject from 'lodash/isPlainObject';
 import { observer } from 'mobx-react';
 import { action, computed, IReactionDisposer, isArrayLike, reaction, runInAction } from 'mobx';
@@ -19,6 +20,7 @@ import autobind from '../_util/autobind';
 import { ValidationMessages } from '../validator/Validator';
 import Option, { OptionProps } from '../option/Option';
 import OptGroup from '../option/OptGroup';
+import Icon from '../icon';
 import { DataSetStatus, FieldType } from '../data-set/enum';
 import DataSet from '../data-set/DataSet';
 import Record from '../data-set/Record';
@@ -46,14 +48,15 @@ function updateActiveKey(menu: Menu, activeKey: string) {
 }
 
 function defaultSearchMatcher({ record, text, textField }) {
-  return record.get(textField).indexOf(text) !== -1;
+  return record.get(textField) && record.get(textField).indexOf(text) !== -1;
 }
 
-export const disabledField = '__disabled';
+export const DISABLED_FIELD = '__disabled';
+export const MORE_KEY = '__more__';
 
 function defaultOnOption({ record }) {
   return {
-    disabled: record.get(disabledField),
+    disabled: record.get(DISABLED_FIELD),
   };
 }
 
@@ -279,7 +282,6 @@ export class Select<T extends SelectProps> extends TriggerField<T> {
     ...TriggerField.defaultProps,
     suffixCls: 'select',
     combo: false,
-    searchable: false,
     checkValueOnOptionsChange: true,
     onOption: defaultOnOption,
     selectAllButton: true,
@@ -395,7 +397,7 @@ export class Select<T extends SelectProps> extends TriggerField<T> {
     return (
       options ||
       (field && field.options) ||
-      normalizeOptions({ textField, valueField, disabledField, multiple, children })
+      normalizeOptions({ textField, valueField, disabledField: DISABLED_FIELD, multiple, children })
     );
   }
 
@@ -696,12 +698,12 @@ export class Select<T extends SelectProps> extends TriggerField<T> {
     });
     if (!optGroups.length) {
       optGroups.push(
-        <Item key="no_data" disabled>
+        <Item key="no_data" disabled checkable={false}>
           {this.loading ? ' ' : this.getNotFoundContent()}
         </Item>,
       );
     }
-
+    const menuPrefix = this.getMenuPrefixCls();
     return (
       <Menu
         ref={this.saveMenu}
@@ -709,13 +711,20 @@ export class Select<T extends SelectProps> extends TriggerField<T> {
         defaultActiveFirst
         multiple={this.menuMultiple}
         selectedKeys={selectedKeys}
-        prefixCls={this.getMenuPrefixCls()}
+        prefixCls={menuPrefix}
         onClick={this.handleMenuClick}
         style={{ ...IeMenuStyle, ...dropdownMenuStyle }}
         focusable={false}
         {...menuProps}
       >
         {optGroups}
+        {
+          options.paging && options.currentPage < options.totalPage && (
+            <Item key={MORE_KEY} checkable={false} className={`${menuPrefix}-item-more`}>
+              <Icon type="more_horiz" />
+            </Item>
+          )
+        }
       </Menu>
     );
   }
@@ -790,8 +799,8 @@ export class Select<T extends SelectProps> extends TriggerField<T> {
     }
   }
 
-  getTriggerIconFont() {
-    return 'baseline-arrow_drop_down';
+  getTriggerIconFont(): string {
+    return this.searchable && this.isFocused ? 'search' : 'baseline-arrow_drop_down';
   }
 
   @autobind
@@ -850,25 +859,28 @@ export class Select<T extends SelectProps> extends TriggerField<T> {
     const findRecord = this.findByValue(v);
     const optionProps = findRecord ? onOption({ dataSet: options, record: findRecord }) : undefined;
     const optionDisabled = (optionProps && optionProps.disabled);
-    return (findRecord && findRecord.get(disabledField) === true) || optionDisabled || this.isDisabled();
+    return (findRecord && findRecord.get(DISABLED_FIELD) === true) || optionDisabled || this.isDisabled();
   }
 
   handleKeyDownFirstLast(e, menu: Menu, direction: number) {
     stopEvent(e);
-    const children = menu.getFlatInstanceArray();
-    const activeItem = children[direction < 0 ? 0 : children.length - 1];
-    if (activeItem) {
-      if (!this.editable || this.popup) {
-        updateActiveKey(menu, activeItem.props.eventKey);
-      }
-      if (!this.editable && !this.popup) {
-        this.choose(activeItem.props.value);
+    // TreeSelect event conflict
+    if (!menu.tree) {
+      const children = menu.getFlatInstanceArray();
+      const activeItem = children[direction < 0 ? 0 : children.length - 1];
+      if (activeItem) {
+        if (!this.editable || this.popup) {
+          updateActiveKey(menu, activeItem.props.eventKey);
+        }
+        if (!this.editable && !this.popup) {
+          this.choose(activeItem.props.value);
+        }
       }
     }
   }
 
   handleKeyDownPrevNext(e, menu: Menu, direction: number) {
-    if (!this.multiple && !this.editable) {
+    if (!this.multiple && !this.editable && !menu.tree) {
       const activeItem = menu.step(direction);
       if (activeItem) {
         updateActiveKey(menu, activeItem.props.eventKey);
@@ -1044,11 +1056,14 @@ export class Select<T extends SelectProps> extends TriggerField<T> {
 
   @autobind
   handleMenuClick({
+    key,
     item: {
       props: { value },
     },
   }) {
-    if (this.multiple && this.isSelected(value)) {
+    if (key === MORE_KEY) {
+      this.options.queryMore(this.options.currentPage + 1);
+    } else if (this.multiple && this.isSelected(value)) {
       this.unChoose(value);
     } else {
       this.choose(value);
@@ -1182,7 +1197,7 @@ export class Select<T extends SelectProps> extends TriggerField<T> {
         const findRecord = this.findByValue(v);
         const optionProps = findRecord ? onOption({ dataSet: options, record: findRecord }) : undefined;
         const optionDisabled = (optionProps && optionProps.disabled);
-        return (recordItem && recordItem.get(disabledField) === true) || optionDisabled;
+        return (recordItem && recordItem.get(DISABLED_FIELD) === true) || optionDisabled;
       });
       const multipleValue = valuesDisabled.length > 0 ? valuesDisabled : this.emptyValue;
       this.setValue(multipleValue);
@@ -1192,6 +1207,18 @@ export class Select<T extends SelectProps> extends TriggerField<T> {
     this.rangeValue = this.isFocused ? [undefined, undefined] : undefined;
     onClear();
     this.removeComboOptions();
+  }
+
+  // 当触发清空操作时候会导致两次触发onchange可搜索不需要设置值
+  setRangeTarget(target) {
+    if (this.text !== undefined) {
+      if (!this.searchable) {
+        this.prepareSetValue(this.text);
+      }
+      this.setText();
+    }
+    super.setRangeTarget(target);
+    defer(() => this.isFocused && this.select());
   }
 
   resetFilter() {
@@ -1251,7 +1278,7 @@ export class Select<T extends SelectProps> extends TriggerField<T> {
       const value = record.get(valueField);
       const optionDisabled = (optionProps && optionProps.disabled);
       const optionIsSelect = values.includes(value);
-      return !optionDisabled && !optionIsSelect;
+      return (!optionDisabled && !optionIsSelect) || (optionDisabled && optionIsSelect) ;
     });
     this.setValue(selectedOptions.map(this.processRecordToObject, this));
   }

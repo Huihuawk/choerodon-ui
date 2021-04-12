@@ -50,7 +50,13 @@ class App extends React.Component {
 
   userDs = new DataSet({
     primaryKey: 'userid',
-    name: 'user',
+    transport: {
+      read({ params: { page, pagesize } }) {
+        return {
+          url: `/dataset/user/page/${pagesize}/${page}`,
+        };
+      },
+    },
     autoQuery: true,
     pageSize: 5,
     fields: [
@@ -144,7 +150,7 @@ class App extends React.Component {
   render() {
     const buttons = [this.leftDrag ,this.noneDrag, this.rightDrag, 'save', 'delete', 'reset'];
     return (
-      <Table dragColumnAlign={this.state.dragColumnAlign} dragRow={true} dragColumn={true}  key="user" buttons={buttons} dataSet={this.userDs} pristine>
+      <Table dragColumnAlign={this.state.dragColumnAlign} rowDraggable columnDraggable  key="user" buttons={buttons} dataSet={this.userDs} pristine>
         <Column name="userid" />
         <Column name="age" />
         <Column name="enable" />

@@ -28,7 +28,13 @@ class App extends React.Component {
   
   ds = new DataSet({
     primaryKey: 'userid',
-    name: 'user',
+    transport: {
+      read({ params: { page, pagesize } }) {
+        return {
+          url: `/dataset/user/page/${pagesize}/${page}`,
+        };
+      },
+    },
     autoQuery: true,
     pageSize: 5,
     cacheSelection: true, // 缓存选中记录
@@ -139,7 +145,7 @@ class App extends React.Component {
       { name: 'enable', type: 'boolean', label: '是否开启', unique: 'uniqueGroup' },
       { name: 'frozen', type: 'boolean', label: '是否冻结', trueValue: 'Y', falseValue: 'N' },
       { name: 'date.startDate', type: 'date', label: '开始日期', defaultValue: new Date() },
-      { name: 'date.endDate', type: 'dateTime', label: '结束日期' },
+      { name: 'date.endDate', type: 'dateTime', range: true, label: '结束日期' },
     ],
   });
 

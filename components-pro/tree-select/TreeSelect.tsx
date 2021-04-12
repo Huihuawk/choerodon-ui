@@ -5,7 +5,7 @@ import { action, computed, observable } from 'mobx';
 import { observer } from 'mobx-react';
 import Tree, { TreeProps } from 'choerodon-ui/lib/tree';
 import TreeNode from './TreeNode';
-import { disabledField, Select, SelectProps } from '../select/Select';
+import { DISABLED_FIELD, MORE_KEY, Select, SelectProps } from '../select/Select';
 import DataSet from '../data-set/DataSet';
 import Record from '../data-set/Record';
 import normalizeTreeNodes from './normalizeTreeNodes';
@@ -13,11 +13,14 @@ import autobind from '../_util/autobind';
 import isIE from '../_util/isIE';
 import { defaultRenderer } from '../tree';
 import { getTreeNodes } from '../tree/util';
+import Icon from '../icon';
 
 export interface TreeSelectProps extends SelectProps {
   treeCheckable?: boolean;
   treeDefaultExpandAll?: boolean;
   treeDefaultExpandedKeys?: Key[];
+  async?: boolean;
+  loadData?: (node) => Promise<any>
 }
 
 @observer
@@ -80,7 +83,7 @@ export default class TreeSelect extends Select<TreeSelectProps> {
     return (
       options ||
       (field && field.options) ||
-      normalizeTreeNodes({ textField, valueField, disabledField, parentField, idField, multiple, children })
+      normalizeTreeNodes({ textField, valueField, disabledField: DISABLED_FIELD, parentField, idField, multiple, children })
     );
   }
 
@@ -113,8 +116,11 @@ export default class TreeSelect extends Select<TreeSelectProps> {
 
   @autobind
   handleTreeSelect(_e, { node }) {
-    const { record, disabled } = node;
-    if (!disabled) {
+    const { record, disabled, key } = node;
+    if (key === MORE_KEY) {
+      const { options } = this;
+      options.queryMore(options.currentPage + 1);
+    } else if (!disabled) {
       const { multiple } = this;
       if (multiple) {
         if (this.isSelected(record)) {
@@ -151,6 +157,25 @@ export default class TreeSelect extends Select<TreeSelectProps> {
   }
 
   @autobind
+  handleLoadData(event): Promise<any> {
+    const { loadData } = this.props;
+    const dataSet = this.options;
+    const promises: Promise<any>[] = [];
+    if (dataSet) {
+      const { idField, parentField } = dataSet.props;
+      const { record } = event.props;
+      if (idField && parentField && record && !record.children) {
+        const id = record.get(idField);
+        promises.push(dataSet.queryMore(-1, { [parentField]: id }));
+      }
+    }
+    if (loadData) {
+      promises.push(loadData(event));
+    }
+    return Promise.all(promises);
+  }
+
+  @autobind
   getMenu(menuProps: object = {}): ReactNode {
     const {
       options,
@@ -166,6 +191,7 @@ export default class TreeSelect extends Select<TreeSelectProps> {
       props: {
         dropdownMenuStyle, optionRenderer = defaultRenderer, optionsFilter,
         treeDefaultExpandAll, treeDefaultExpandedKeys, treeCheckable,
+        async, loadData,
       },
     } = this;
     const menuDisabled = this.isDisabled();
@@ -180,14 +206,14 @@ export default class TreeSelect extends Select<TreeSelectProps> {
       optionRenderer,
       // @ts-ignore
       this.handleTreeNode,
-      undefined,
+      async || !!loadData,
       textField,
       treeDefaultExpandAll,
       optionsFilter,
       this.matchRecordBySearch,
       text,
     );
-    if (!treeData.length) {
+    if (!treeData || !treeData.length) {
       return (
         <div className={menuPrefixCls}>
           <div className={`${menuPrefixCls}-item ${menuPrefixCls}-item-disabled`}>
@@ -195,6 +221,15 @@ export default class TreeSelect extends Select<TreeSelectProps> {
           </div>
         </div>
       );
+    }
+    if (options.paging && options.currentPage < options.totalPage) {
+      treeData.push({
+        key: MORE_KEY,
+        eventKey: MORE_KEY,
+        title: <Icon type="more_horiz" />,
+        className: `${this.getMenuPrefixCls()}-item ${menuPrefixCls}-item-more`,
+        isLeaf: true,
+      });
     }
     const props: TreeProps = {};
     if (expandedKeys) {
@@ -219,6 +254,7 @@ export default class TreeSelect extends Select<TreeSelectProps> {
         checkable={'treeCheckable' in this.props ? treeCheckable : multiple}
         className={menuPrefixCls}
         multiple={multiple}
+        loadData={async ? this.handleLoadData : loadData}
         {...props}
         {...menuProps}
       />

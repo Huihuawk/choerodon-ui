@@ -144,11 +144,11 @@ export class LovCodeStore {
   }
 
   // lovCode 作为key 缓存了 ds
-  getLovDataSet(code: string, field?: Field): DataSet | undefined {
+  getLovDataSet(code: string, field?: Field, dataSetProps?: DataSetProps): DataSet | undefined {
     const config = this.getConfig(code);
     if (config) {
-      const { lovPageSize, lovItems, parentIdField, idField, valueField, treeFlag } = config;
-      const dataSetProps: DataSetProps = {
+      const { lovPageSize, lovItems, parentIdField, idField, valueField, treeFlag, dataSetProps: configDataSetProps } = config;
+      const dsProps: DataSetProps = {
         transport: {
           read: this.getQueryAxiosConfig(code, field, config),
         },
@@ -157,13 +157,13 @@ export class LovCodeStore {
         autoLocateFirst: false,
       };
       if (!isNil(lovPageSize) && !isNaN(Number(lovPageSize))) {
-        dataSetProps.pageSize = Number(lovPageSize);
+        dsProps.pageSize = Number(lovPageSize);
       } else {
-        dataSetProps.paging = false;
+        dsProps.paging = false;
       }
       if (treeFlag === 'Y' && parentIdField && idField) {
-        dataSetProps.parentField = parentIdField;
-        dataSetProps.idField = idField;
+        dsProps.parentField = parentIdField;
+        dsProps.idField = idField;
       }
 
       if (lovItems && lovItems.length) {
@@ -181,13 +181,13 @@ export class LovCodeStore {
             { querys: [] as FieldProps[], fields: [] as FieldProps[] },
           );
         if (querys.length) {
-          dataSetProps.queryFields = querys;
+          dsProps.queryFields = querys;
         }
         if (fields.length) {
-          dataSetProps.fields = fields;
+          dsProps.fields = fields;
         }
       }
-      return new DataSet(dataSetProps);
+      return new DataSet({ ...dsProps, ...configDataSetProps, ...dataSetProps });
     }
     warning(false, `LOV: code<${code}> is not exists`);
     return undefined;

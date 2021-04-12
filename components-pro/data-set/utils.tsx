@@ -10,10 +10,11 @@ import isNumber from 'lodash/isNumber';
 import warning from 'choerodon-ui/lib/_util/warning';
 import { getConfig } from 'choerodon-ui/lib/configure';
 import isNil from 'lodash/isNil';
-import { isEmpty as _isEmpty } from 'lodash';
+import _isEmpty from 'lodash/isEmpty';
+import XLSX from 'xlsx';
 import Field, { DynamicPropsArguments, FieldProps, Fields } from './Field';
 import { BooleanValue, DataToJSON, FieldType, RecordStatus, SortOrder } from './enum';
-import DataSet from './DataSet';
+import DataSet, { Group } from './DataSet';
 import Record from './Record';
 import isEmpty from '../_util/isEmpty';
 import * as ObjectChainValue from '../_util/ObjectChainValue';
@@ -24,6 +25,7 @@ import { Lang } from '../locale-context/enum';
 import formatNumber from '../formatter/formatNumber';
 import formatCurrency from '../formatter/formatCurrency';
 import { getPrecision } from '../number-field/utils';
+import { FormatNumberFuncOptions } from '../number-field/NumberField';
 
 export function useNormal(dataToJSON: DataToJSON): boolean {
   return [DataToJSON.normal, DataToJSON['normal-self']].includes(dataToJSON);
@@ -697,20 +699,38 @@ export function findBindFieldBy(myField: Field, fields: Fields, prop: string): F
   });
 }
 
-export function processFieldValue(value, field: Field, lang: Lang, showValueIfNotFound?: boolean) {
+function processNumberOptions(field: Field, options: Intl.NumberFormatOptions) {
+  const precision = field.get('precision');
+  const numberGrouping = field.get('numberGrouping');
+  if (isNumber(precision)) {
+    options.minimumFractionDigits = precision;
+    options.maximumFractionDigits = precision;
+  }
+  if (numberGrouping === false) {
+    options.useGrouping = false;
+  }
+  return options;
+}
+
+export function processFieldValue(value, field: Field, defaultLang: Lang, showValueIfNotFound?: boolean) {
   const { type } = field;
+  const formatterOptions: FormatNumberFuncOptions = field.get('formatterOptions') || {};
+  const numberFieldFormatterOptions: FormatNumberFuncOptions = getConfig('numberFieldFormatterOptions') || {};
   if (type === FieldType.number) {
-    const precision = getPrecision(value || 0);
-    const options = {
-      minimumFractionDigits: precision,
-      maximumFractionDigits: precision,
-    };
-    return formatNumber(value, lang, options);
+    const precisionInValue = getPrecision(value || 0);
+
+    return formatNumber(value, formatterOptions.lang || numberFieldFormatterOptions.lang || defaultLang, processNumberOptions(field, {
+      minimumFractionDigits: precisionInValue,
+      maximumFractionDigits: precisionInValue,
+      ...numberFieldFormatterOptions.options,
+      ...formatterOptions.options,
+    }));
   }
   if (type === FieldType.currency) {
-    return formatCurrency(value, lang, {
+    return formatCurrency(value, formatterOptions.lang || defaultLang, processNumberOptions(field, {
       currency: field.get('currency'),
-    });
+      ...formatterOptions.options,
+    }));
   }
   return field.getText(value, showValueIfNotFound);
 }
@@ -774,4 +794,90 @@ export function generateJSONData(
 
 export function isDirtyRecord(record) {
   return record.status !== RecordStatus.sync || record.dirty;
+}
+
+export function getSpliceRecord(records: Record[], inserts: Record[], fromRecord?: Record): Record | undefined {
+  if (fromRecord) {
+    if (inserts.includes(fromRecord)) {
+      return getSpliceRecord(records, inserts, records[records.indexOf(fromRecord) + 1]);
+    }
+    return fromRecord;
+  }
+}
+
+// bugs in react native
+export function fixAxiosConfig(config: AxiosRequestConfig): AxiosRequestConfig {
+  const { method } = config;
+  if (method && method.toLowerCase() === 'get') {
+    delete config.data;
+  }
+  return config;
+}
+
+const EMPTY_GROUP_KEY = '__empty_group__';
+
+export function normalizeGroups(groups: string[], records: Record[]): Group[] {
+  const optGroups: Group[] = [];
+  const restRecords: Record[] = [];
+  records.forEach((record) => {
+    let previousGroup: Group | undefined;
+    groups.every((key) => {
+      const label = record.get(key);
+      if (label !== undefined) {
+        if (!previousGroup) {
+          previousGroup = optGroups.find(item => item.value === label);
+          if (!previousGroup) {
+            previousGroup = {
+              name: key,
+              value: label,
+              records: [],
+              subGroups: [],
+            };
+            optGroups.push(previousGroup);
+          }
+        } else {
+          const { subGroups } = previousGroup;
+          previousGroup = subGroups.find(item => item.value === label);
+          if (!previousGroup) {
+            previousGroup = {
+              name: key,
+              value: label,
+              records: [],
+              subGroups: [],
+            };
+            subGroups.push(previousGroup);
+          }
+        }
+        return true;
+      }
+      return false;
+    });
+    if (previousGroup) {
+      const { records: groupRecords } = previousGroup;
+      groupRecords.push(record);
+    } else {
+      restRecords.push(record);
+    }
+  });
+  if (restRecords.length) {
+    optGroups.push({
+      name: EMPTY_GROUP_KEY,
+      value: undefined,
+      records: restRecords,
+      subGroups: [],
+    });
+  }
+  return optGroups;
+}
+
+/**
+ * 
+ * @param data 导出需要导出的数据
+ * @param excelname 导出表单的名字
+ */
+export function exportExcel(data, excelName){
+  const ws = XLSX.utils.json_to_sheet(data, { skipHeader: true }); /* 新建空workbook，然后加入worksheet */
+  const wb = XLSX.utils.book_new();  /* 新建book */
+  XLSX.utils.book_append_sheet(wb, ws); /* 生成xlsx文件(book,sheet数据,sheet命名) */
+  XLSX.writeFile(wb, `${excelName}.xlsx`); /* 写文件(book,xlsx文件名称) */
 }

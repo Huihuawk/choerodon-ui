@@ -84,6 +84,7 @@ title: DataSet
 | --- | --- | --- | --- |
 | ready() | 判断数据源是否准备就绪 |  | Promise |
 | query(page, params) | 查询 | `page`&lt;optional,default:1&gt; - 指定页码 `params`&lt;optional&gt; - 临时查询参数 | Promise&lt;any&gt; |
+| queryMore(page, params) | 查询更多， 保留原数据 | `page`&lt;optional,default:1&gt; - 指定页码 `params`&lt;optional&gt; - 临时查询参数  | Promise&lt;any&gt; |
 | submit() | 将数据集中的增删改的记录先进行校验再进行远程提交。submit 会抛出请求的异常，请用 promise.catch 或 try-await-catch 来处理异常。 |  | Promise&lt;any&gt; `false` - 校验失败，`undefined` - 无数据提交或提交相关配置不全，如没有 submitUrl。 |
 | reset() | 重置更改, 并清除校验状态 |  |  |
 | locate(index) | 定位到指定记录, 如果`paging` 为 `true`，则做远程查询 | `index` - 记录索引 | Promise&lt;Record&gt; |
@@ -133,6 +134,7 @@ title: DataSet
 | bind(ds, name) | 绑定头 DataSet | `ds` - 头 DataSet 对象或 id `name` - 绑定名 |  |
 | setQueryParameter(para, value) | 设置查询参数 | `para` - 参数名 `value` - 参数值 |  |
 | loadData(data, total) | 加载数据 | `data` - 数据数组 `total` - 总数，可选，用于分页 |  |
+| appendData(data, total) | 附加数据 | `data` - 数据数组 `total` - 总数，可选，用于分页 |  |
 
 ### DataSet Events
 
@@ -142,6 +144,8 @@ title: DataSet
 | query | 查询事件，返回值为 false 将阻止查询 | ({ dataSet, params, data }) =&gt; boolean | `dataSet` - 数据集 `params` - 查询参数 `data` - 查询参数 | 是 |
 | beforeLoad | 数据加载前的事件， 用于处理请求数据 | ({ dataSet, data }) =&gt; void | `dataSet` - 数据集 `data` - 请求数据 | 是 |
 | load | 数据加载完后事件 | ({ dataSet }) =&gt; void | `dataSet` - 数据集 | 是 |
+| beforeAppend | 数据附加前的事件， 用于处理请求数据 | ({ dataSet, data }) =&gt; void | `dataSet` - 数据集 `data` - 请求数据 | 是 |
+| append | 数据附加完后事件 | ({ dataSet }) =&gt; void | `dataSet` - 数据集 | 是 |
 | loadFailed | 数据加载失败事件 | ({ dataSet }) =&gt; void | `dataSet` - 数据集 | 是 |
 | submit | 提交事件，返回值为 false 将阻止提交 | ({ dataSet, data }) =&gt; boolean | `dataSet` - 数据集 `data` - json 数据 | 是 |
 | submitSuccess | 提交成功事件 | ({ dataSet, data }) =&gt; void | `dataSet` - 数据集 `data` - 响应数据 | 是 |
@@ -218,6 +222,8 @@ title: DataSet
 | min | 最小值。 fieldName 指向当前记录的 fieldName 值作为最小值。 | number \| MomentInput \| fieldName |  |
 | step | 步距 | number \| { hour: number, minute: number, second: number } |  |
 | nonStrictStep | 非严格步距，在非严格步距下，允许输入值不为步距的倍数加上最小值，也允许在设置整数步距的情况下输入小数   | boolean | false |
+| precision | 小数点位数 | number |  |
+| numberGrouping | 千分位分组显示 | boolean | true |
 | validator | 校验器，当返回值为 false 或 涵盖错误信息的字符串，则为校验失败 | (value, name, record) =&gt; boolean \| string \| undefined |  |
 | required | 是否必选 | boolean | false |
 | readOnly | 是否只读 | boolean | false |
@@ -227,6 +233,7 @@ title: DataSet
 | trueValue | 类型为 boolean 时，true 对应的值 | boolean\|string\|number | true |
 | falseValue | 类型为 boolean 时，false 对应的值 | boolean\|string\|number | false |
 | options | 下拉框组件的菜单数据集 | DataSet |  |
+| optionsProps | 值集组件的数据集配置 | DataSetProps |  |
 | group | 是否分组，如果是 number，则为分组的顺序(暂无实装) | boolean\|number |  |
 | defaultValue | 默认值 | any |  |
 | multiple | 是否为值数组。 当为字符串时，作为数据分隔符，查询时会将字符串分割成数组，提交时会将数组拼接成字符串 | boolean\| string | false |

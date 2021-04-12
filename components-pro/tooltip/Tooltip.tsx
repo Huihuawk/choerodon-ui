@@ -2,6 +2,7 @@ import React, { Children, Component, isValidElement } from 'react';
 import PropTypes from 'prop-types';
 import { getProPrefixCls } from 'choerodon-ui/lib/configure';
 import noop from 'lodash/noop';
+import isNil from 'lodash/isNil';
 import Trigger, { TriggerProps } from '../trigger/Trigger';
 import { Action } from '../trigger/enum';
 import getPlacements, { AdjustOverflow } from './placements';
@@ -223,31 +224,33 @@ export default class Tooltip extends Component<TooltipProps, any> {
       prefixCls,
       props: { children, placement, theme, onHiddenChange, trigger, defaultHidden, hidden, ...restProps },
     } = this;
-    const child = Children.map(children, node => {
-      node = getDisabledCompatobleChildren(
+    // 修复特殊情况为0，以及 undefined 出现的报错情况
+    const child = Children.count(children) ? Children.map(children, node => (
+      !isNil(node) && getDisabledCompatobleChildren(
         isValidElement(node) ? node : <span key={`text-${node}`}>{node}</span>,
-      );
-      return node;
-    });
+      )
+    )) : null;
 
     const extraProps: TriggerProps = { ...restProps };
     if ('hidden' in this.props) {
       extraProps.popupHidden = hidden;
     }
     const content = this.getContent();
-    return content ? (
+    return !isNil(child) ? (
       <Trigger
         prefixCls={prefixCls}
         action={trigger}
         builtinPlacements={this.placements}
         popupPlacement={placement}
         popupContent={
-          <PopupContent
-            content={content}
-            theme={theme}
-            prefixCls={prefixCls}
-            translate={translate}
-          />
+          content && (
+            <PopupContent
+              content={content}
+              theme={theme}
+              prefixCls={prefixCls}
+              translate={translate}
+            />
+          )
         }
         onPopupHiddenChange={onHiddenChange}
         onPopupAlign={this.handlePopupAlign}

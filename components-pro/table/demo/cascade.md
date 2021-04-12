@@ -112,7 +112,13 @@ class App extends React.Component {
 
   userDs = new DataSet({
     primaryKey: 'userid',
-    name: 'user',
+    transport: {
+      read({ params: { page, pagesize } }) {
+        return {
+          url: `/dataset/user/page/${pagesize}/${page}`,
+        };
+      },
+    },
     autoQuery: false,
     autoCreate: true,
     pageSize: 5,
@@ -235,7 +241,7 @@ class App extends React.Component {
       this.toJSONDataButton,
     ];
     return [
-      <Table key="user" buttons={buttons} dataSet={this.userDs} header="User" rowHeight="auto" dragColumn>
+      <Table key="user" buttons={buttons} dataSet={this.userDs} header="User" rowHeight="auto" columnDraggable rowNumber={({ text }) => `#${text}`}>
         <Column name="userid" editor />
         <Column name="age" editor width={150} />
         <Column name="enable" editor width={50} />

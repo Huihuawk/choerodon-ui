@@ -51,7 +51,7 @@ export interface ModalProps extends ViewComponentProps {
   closable?: boolean;
   movable?: boolean;
   fullScreen?: boolean;
-  maskClosable?: boolean;
+  maskClosable?: boolean | 'click' | 'dblclick';
   maskStyle?: CSSProperties;
   autoCenter?: boolean;
   mask?: boolean,
@@ -81,6 +81,7 @@ export interface ModalProps extends ViewComponentProps {
   drawerTransitionName?: 'slide-up' | 'slide-right' | 'slide-down' | 'slide-left';
   key?: Key;
   border?: boolean;
+  drawerBorder?: boolean;
   okFirst?: boolean;
   keyboard?: boolean;
   active?: boolean;
@@ -97,7 +98,7 @@ export default class Modal extends ViewComponent<ModalProps> {
     closable: PropTypes.bool,
     movable: PropTypes.bool,
     fullScreen: PropTypes.bool,
-    maskClosable: PropTypes.bool,
+    maskClosable: PropTypes.oneOfType([PropTypes.bool, PropTypes.string]),
     maskStyle: PropTypes.object,
     mask: PropTypes.bool,
     maskClassName: PropTypes.string,
@@ -118,7 +119,7 @@ export default class Modal extends ViewComponent<ModalProps> {
     okCancel: PropTypes.bool,
     drawer: PropTypes.bool,
     drawerOffset: PropTypes.number,
-    drawerTransitionName: PropTypes.oneOf(['slide-up', 'slide-right', 'slide-down', 'slide-up']),
+    drawerTransitionName: PropTypes.oneOf(['slide-up', 'slide-right', 'slide-down', 'slide-up', 'slide-left']),
     // title: PropTypes.node,
     // 此处原本允许title传入node，但是类型为PropTypes.node时无法正确继承ViewComponent
     // 父类中的title指的是HTML元素的title属性，此处title指modal标题，产生歧义，暂时设置为string
@@ -135,7 +136,6 @@ export default class Modal extends ViewComponent<ModalProps> {
     suffixCls,
     closable: false,
     movable: true,
-    maskClosable: false,
     mask: true,
     keyboardClosable: true,
     okButton: true,
@@ -144,7 +144,6 @@ export default class Modal extends ViewComponent<ModalProps> {
     fullScreen: false,
     drawer: false,
     drawerOffset: 150,
-    drawerTransitionName: 'slide-right',
     autoFocus: true,
   };
 
@@ -264,8 +263,8 @@ export default class Modal extends ViewComponent<ModalProps> {
       'okProps',
       'cancelProps',
       'border',
+      'drawerBorder',
       'okFirst',
-      'drawerTransitionName',
       'autoCenter',
       'keyboard',
       'mousePosition',
@@ -306,10 +305,11 @@ export default class Modal extends ViewComponent<ModalProps> {
         style = {},
         fullScreen,
         drawer,
-        drawerTransitionName,
+        drawerTransitionName = getConfig('drawerTransitionName'),
         size,
         active,
         border = getConfig('modalSectionBorder'),
+        drawerBorder = getConfig('drawerSectionBorder'),
         autoCenter = getConfig('modalAutoCenter'),
       },
     } = this;
@@ -318,7 +318,7 @@ export default class Modal extends ViewComponent<ModalProps> {
       [`${prefixCls}-center`]: !drawer && !('left' in style || 'right' in style) && !this.offset,
       [`${prefixCls}-fullscreen`]: fullScreen,
       [`${prefixCls}-drawer`]: drawer,
-      [`${prefixCls}-border`]: border,
+      [`${prefixCls}-border`]: drawer ? drawerBorder : border,
       [`${prefixCls}-drawer-${drawerTransitionName}`]: drawer,
       [`${prefixCls}-auto-center`]: autoCenter,
       [`${prefixCls}-${size}`]: size,

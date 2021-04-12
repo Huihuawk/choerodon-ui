@@ -1,9 +1,20 @@
-import React, { cloneElement, Component, CSSProperties, HTMLProps, isValidElement, MouseEventHandler, ReactElement, ReactNode } from 'react';
+import React, {
+  cloneElement,
+  Component,
+  CSSProperties,
+  HTMLProps,
+  isValidElement,
+  MouseEventHandler,
+  ReactElement,
+  ReactNode,
+  RefObject,
+} from 'react';
 import PropTypes from 'prop-types';
 import { observer } from 'mobx-react';
 import { action, computed, isArrayLike, observable, runInAction } from 'mobx';
 import classNames from 'classnames';
 import raf from 'raf';
+import { DraggableProvided } from 'react-beautiful-dnd';
 import omit from 'lodash/omit';
 import isObject from 'lodash/isObject';
 import isString from 'lodash/isString';
@@ -17,7 +28,18 @@ import { ColumnProps } from './Column';
 import Record from '../data-set/Record';
 import { ElementProps } from '../core/ViewComponent';
 import TableContext from './TableContext';
-import { findCell, findFirstFocusableElement, getAlignByField, getColumnKey, getEditorByColumnAndRecord, isDisabledRow, isRadio } from './utils';
+import {
+  findCell,
+  findFirstFocusableElement,
+  getAlignByField,
+  getColumnKey,
+  getColumnLock,
+  getEditorByColumnAndRecord,
+  getPlacementByAlign,
+  isDisabledRow,
+  isInCellEditor,
+  isStickySupport,
+} from './utils';
 import { FormFieldProps, Renderer } from '../field/FormField';
 import { ColumnAlign, ColumnLock, TableColumnTooltip, TableCommandType } from './enum';
 import ObserverCheckBox from '../check-box/CheckBox';
@@ -31,13 +53,18 @@ import { LabelLayout } from '../form/enum';
 import { Commands, TableButtonProps } from './Table';
 import autobind from '../_util/autobind';
 import { DRAG_KEY, SELECTION_KEY } from './TableStore';
+import TableEditor from './TableEditor';
 
 export interface TableCellProps extends ElementProps {
   column: ColumnProps;
   record: Record;
   indentSize: number;
+  colSpan?: number;
   isDragging: boolean;
   lock?: ColumnLock | boolean;
+  provided?: DraggableProvided;
+  intersectionRef?: RefObject<any> | ((node?: Element | null) => void);
+  inView: boolean;
 }
 
 let inTab: boolean = false;
@@ -47,7 +74,6 @@ export default class TableCell extends Component<TableCellProps> {
   static displayName = 'TableCell';
 
   static propTypes = {
-    prefixCls: PropTypes.string,
     column: PropTypes.object.isRequired,
     record: PropTypes.instanceOf(Record).isRequired,
     indentSize: PropTypes.number.isRequired,
@@ -69,7 +95,7 @@ export default class TableCell extends Component<TableCellProps> {
 
   @computed
   get cellEditorInCell() {
-    return isRadio(this.cellEditor);
+    return isInCellEditor(this.cellEditor);
   }
 
   @computed
@@ -80,19 +106,62 @@ export default class TableCell extends Component<TableCellProps> {
     return !pristine && this.cellEditor && !this.cellEditorInCell;
   }
 
+  @computed
+  get canFocus() {
+    const { tableStore } = this.context;
+    const { record } = this.props;
+    return !isDisabledRow(record) && (!tableStore.inlineEdit || record === tableStore.currentEditRecord);
+  }
+
+  @computed
+  get currentEditor(): TableEditor | undefined {
+    const { tableStore } = this.context;
+    const { record, column } = this.props;
+    if (tableStore.inlineEdit && record === tableStore.currentEditRecord) {
+      return tableStore.editors.get(getColumnKey(column));
+    }
+    return undefined;
+  }
+
+  componentDidMount(): void {
+    this.connect();
+    const { currentEditor } = this;
+    if (currentEditor) {
+      currentEditor.alignEditor();
+    }
+  }
+
+  componentDidUpdate(): void {
+    this.disconnect();
+    this.connect();
+  }
+
+  componentWillUnmount(): void {
+    this.disconnect();
+    const { currentEditor } = this;
+    if (currentEditor) {
+      currentEditor.hideEditor();
+    }
+  }
+
+
   @autobind
   @action
   saveOutput(node) {
-    this.disconnect();
     if (node) {
       this.element = node.element;
-      const {
-        tableStore: { dataSet },
-      } = this.context;
-      dataSet.addEventListener(DataSetEvents.update, this.handleOutputChange);
-      this.handleResize();
     } else {
       this.element = null;
+    }
+  }
+
+  connect() {
+    const { column } = this.props;
+    const { tableStore } = this.context;
+    if (tableStore.getColumnTooltip(column) === TableColumnTooltip.overflow) {
+      const { dataSet } = tableStore;
+      dataSet.addEventListener(DataSetEvents.update, this.handleOutputChange);
+      this.handleResize();
     }
   }
 
@@ -142,13 +211,9 @@ export default class TableCell extends Component<TableCellProps> {
   computeOverFlow(): boolean {
     const { element } = this;
     if (element && element.textContent) {
-      const {
-        column: { tooltip },
-      } = this.props;
-      if (tooltip === TableColumnTooltip.always) {
-        return true;
-      }
-      if (tooltip === TableColumnTooltip.overflow) {
+      const { column } = this.props;
+      const { tableStore } = this.context;
+      if (tableStore.getColumnTooltip(column) === TableColumnTooltip.overflow) {
         const { clientWidth, scrollWidth } = element;
         return scrollWidth > clientWidth;
       }
@@ -160,9 +225,9 @@ export default class TableCell extends Component<TableCellProps> {
   handleEditorKeyDown(e) {
     switch (e.keyCode) {
       case KeyCode.TAB: {
-        const { prefixCls, column } = this.props;
+        const { column } = this.props;
         const { tableStore } = this.context;
-        const cell = findCell(tableStore, prefixCls, getColumnKey(column));
+        const cell = findCell(tableStore, getColumnKey(column));
         if (cell) {
           if (cell.contains(document.activeElement)) {
             inTab = true;
@@ -183,18 +248,19 @@ export default class TableCell extends Component<TableCellProps> {
   @autobind
   handleFocus(e) {
     const { tableStore } = this.context;
-    const { dataSet, inlineEdit } = tableStore;
+    const { dataSet } = tableStore;
     const {
-      prefixCls,
       record,
       column,
       column: { lock },
     } = this.props;
-    if (column.key !== SELECTION_KEY && !isDisabledRow(record) && (!inlineEdit || record.editing)) {
-      dataSet.current = record;
+    if (this.canFocus) {
+      if (column.key !== SELECTION_KEY) {
+        dataSet.current = record;
+      }
       this.showEditor(e.currentTarget, lock);
-      if (!this.cellEditor || isRadio(this.cellEditor)) {
-        const cell = findCell(tableStore, prefixCls, getColumnKey(column), lock);
+      if (!isStickySupport() && (column.key === SELECTION_KEY || !this.cellEditor || this.cellEditorInCell)) {
+        const cell = findCell(tableStore, getColumnKey(column), lock);
         if (cell && !cell.contains(document.activeElement)) {
           const node = findFirstFocusableElement(cell);
           if (node && !inTab) {
@@ -401,31 +467,59 @@ export default class TableCell extends Component<TableCellProps> {
     return renderer;
   }
 
-  getInnerNode(prefixCls, command?: Commands[]) {
+  getInnerSimple(prefixCls) {
+    const { hasEditor, context: { tableStore } } = this;
+    const { rowHeight } = tableStore;
+    const innerProps: any = {
+      tabIndex: hasEditor && this.canFocus ? 0 : -1,
+      onFocus: this.handleFocus,
+    };
+    if (rowHeight === 'auto') {
+      innerProps.style = {
+        minHeight: 30,
+      };
+    } else {
+      innerProps.style = {
+        height: pxToRem(rowHeight),
+      };
+      innerProps.style = {
+        minHeight: 30,
+      };
+    }
+    return (
+      <span
+        key="output"
+        {...innerProps}
+        className={`${prefixCls}-inner`}
+      />
+    );
+  }
+
+  getInnerNode(prefixCls, command?: Commands[], textAlign?: ColumnAlign) {
     const {
       context: {
-        tableStore: {
-          dataSet,
-          rowHeight,
-          expandIconAsCell,
-          hasCheckFieldColumn,
-          pristine,
-        },
         tableStore,
       },
       props: { children },
     } = this;
-    if (expandIconAsCell && children) {
+    if (tableStore.expandIconAsCell && children) {
       return children;
     }
+    const {
+      dataSet,
+      rowHeight,
+      hasCheckFieldColumn,
+      pristine,
+    } = tableStore;
     const { column, record, indentSize, lock } = this.props;
-    const { name, tooltip, key } = column;
+    const { name, key } = column;
+    const tooltip = tableStore.getColumnTooltip(column);
     const { hasEditor } = this;
     // 计算多行编辑单元格高度
     const field = record.getField(name);
+    const innerClassName: string[] = [`${prefixCls}-inner`];
     const innerProps: any = {
-      className: `${prefixCls}-inner`,
-      tabIndex: hasEditor && !isDisabledRow(record) ? 0 : -1,
+      tabIndex: hasEditor && this.canFocus ? 0 : -1,
       onFocus: this.handleFocus,
       pristine,
     };
@@ -444,15 +538,14 @@ export default class TableCell extends Component<TableCellProps> {
       }
     }
 
-    if (!hasEditor) {
+    if (!isStickySupport() && !hasEditor) {
       innerProps.onKeyDown = this.handleEditorKeyDown;
     }
     if (rowHeight !== 'auto') {
       const isCheckBox = field && field.type === FieldType.boolean || key === SELECTION_KEY;
       const borderPadding = isCheckBox ? 4 : 2;
       const heightPx = rows > 0 ? (rowHeight + 2) * rows + 1 : rowHeight;
-      const lineHeightPx = hasEditor ? rowHeight - borderPadding :
-        isCheckBox ? rowHeight - borderPadding : rowHeight;
+      const lineHeightPx = hasEditor || isCheckBox ? rowHeight - borderPadding : rowHeight;
       innerProps.style = {
         height: pxToRem(heightPx),
         lineHeight: rows > 0 ? 'inherit' : pxToRem(lineHeightPx),
@@ -464,7 +557,7 @@ export default class TableCell extends Component<TableCellProps> {
           lineHeight: pxToRem(max(tableStore.multiLineHeight) || 0),
         };
       }
-      if ((tooltip && tooltip !== TableColumnTooltip.none) || (key === DRAG_KEY)) {
+      if (tooltip === TableColumnTooltip.overflow || (key === DRAG_KEY)) {
         innerProps.ref = this.saveOutput;
       }
       // 如果为拖拽结点强制给予焦点
@@ -475,6 +568,14 @@ export default class TableCell extends Component<TableCellProps> {
           }
         };
       }
+    }
+    const height = record.getState(`__column_resize_height_${name}`);
+    if (height !== undefined && rows === 0) {
+      innerProps.style = {
+        height: pxToRem(height),
+        lineHeight: 1,
+      };
+      innerClassName.push(`${prefixCls}-inner-fixed-height`);
     }
     const indentText = children && (
       <span style={{ paddingLeft: pxToRem(indentSize * record.level) }} />
@@ -493,6 +594,7 @@ export default class TableCell extends Component<TableCellProps> {
       <Output
         key="output"
         {...innerProps}
+        className={innerClassName.join(' ')}
         record={record}
         renderer={this.getCellRenderer(command)}
         name={name}
@@ -500,8 +602,8 @@ export default class TableCell extends Component<TableCellProps> {
         showHelp={ShowHelp.none}
       />
     );
-    const text = this.overflow ? (
-      <Tooltip key="tooltip" title={cloneElement(output, { ref: null, className: null })}>
+    const text = tooltip === TableColumnTooltip.always || this.overflow ? (
+      <Tooltip key="tooltip" title={cloneElement(output, { ref: null, className: null })} placement={getPlacementByAlign(textAlign)}>
         {output}
       </Tooltip>
     ) : (
@@ -510,16 +612,13 @@ export default class TableCell extends Component<TableCellProps> {
     return [prefix, text];
   }
 
-  componentWillUnmount(): void {
-    this.disconnect();
-  }
-
   render() {
-    const { column, prefixCls, record, isDragging } = this.props;
+    const { column, record, isDragging, provided, colSpan, style: propsStyle, className: propsClassName, intersectionRef, inView } = this.props;
     const {
-      tableStore: { inlineEdit, pristine },
+      tableStore,
     } = this.context;
-    const { className, style, align, name, onCell, tooltip } = column;
+    const { prefixCls, inlineEdit, pristine, node } = tableStore;
+    const { className, style, align, name, onCell, lock } = column;
     const command = this.getCommand();
     const field = name ? record.getField(name) : undefined;
     const cellPrefix = `${prefixCls}-cell`;
@@ -535,7 +634,9 @@ export default class TableCell extends Component<TableCellProps> {
       textAlign: align || (command ? ColumnAlign.center : getAlignByField(field)),
       ...style,
       ...cellExternalProps.style,
+      ...(provided && { cursor: 'move' }),
     };
+    const columnLock = isStickySupport() && tableStore.overflowX && getColumnLock(lock);
     const classString = classNames(
       cellPrefix,
       {
@@ -543,34 +644,37 @@ export default class TableCell extends Component<TableCellProps> {
         [`${cellPrefix}-required`]: field && !inlineEdit && field.required,
         [`${cellPrefix}-editable`]: !inlineEdit && this.hasEditor,
         [`${cellPrefix}-multiLine`]: field && field.get('multiLine'),
+        [`${cellPrefix}-fix-${columnLock}`]: columnLock,
       },
       className,
+      propsClassName,
       cellExternalProps.className,
     );
     const widthDraggingStyle = (): React.CSSProperties => {
       const draggingStyle: React.CSSProperties = {};
       if (isDragging) {
-        if (column.width) {
-          draggingStyle.width = pxToRem(column.width);
+        const dom = node.element.querySelector(`.${prefixCls}-tbody .${prefixCls}-cell[data-index=${getColumnKey(column)}]`);
+        if (dom) {
+          draggingStyle.width = dom.clientWidth;
+          draggingStyle.whiteSpace = 'nowrap';
         }
-        if (column.minWidth) {
-          draggingStyle.minWidth = pxToRem(column.minWidth);
-        }
-        draggingStyle.whiteSpace = 'nowrap';
       }
       return draggingStyle;
     };
     const td = (
       <td
+        ref={intersectionRef}
+        colSpan={colSpan}
         {...cellExternalProps}
         className={classString}
-        style={{ ...omit(cellStyle, ['width', 'height']), ...widthDraggingStyle() }}
         data-index={getColumnKey(column)}
+        {...(provided && provided.dragHandleProps)}
+        style={{ ...omit(cellStyle, ['width', 'height']), ...widthDraggingStyle(), ...propsStyle }}
       >
-        {this.getInnerNode(cellPrefix, command)}
+        {inView ? this.getInnerNode(cellPrefix, command, cellStyle.textAlign as ColumnAlign) : this.getInnerSimple(cellPrefix)}
       </td>
     );
-    return tooltip === TableColumnTooltip.overflow ? (
+    return tableStore.getColumnTooltip(column) === TableColumnTooltip.overflow ? (
       <ReactResizeObserver onResize={this.handleResize} resizeProp="width">
         {td}
       </ReactResizeObserver>
@@ -580,16 +684,15 @@ export default class TableCell extends Component<TableCellProps> {
   }
 
   showEditor(cell, lock?: ColumnLock | boolean) {
-    const {
-      column: { name },
-    } = this.props;
-    const { tableStore } = this.context;
+    const { column } = this.props;
+    const { name } = column;
     const { cellEditor } = this;
-    if (name && cellEditor && !isRadio(cellEditor)) {
+    if (name && cellEditor && !this.cellEditorInCell) {
+      const { tableStore } = this.context;
       if (!lock) {
-        const { node, overflowX } = tableStore;
+        const { node, overflowX, virtual } = tableStore;
         if (overflowX) {
-          const tableBodyWrap = cell.offsetParent;
+          const tableBodyWrap = virtual ? cell.offsetParent.parentNode.parentNode : cell.offsetParent;
           if (tableBodyWrap) {
             const { leftLeafColumnsWidth, rightLeafColumnsWidth } = tableStore;
             const { offsetLeft, offsetWidth } = cell;
@@ -616,6 +719,27 @@ export default class TableCell extends Component<TableCellProps> {
         }
       }
       tableStore.showEditor(name);
+      const editor = tableStore.editors.get(name);
+      if (editor) {
+        if (editor.cellNode) {
+          if (tableStore.inlineEdit) {
+            if (editor.inTab) {
+              editor.inTab = false;
+            } else {
+              editor.focus();
+            }
+          } else {
+            editor.hideEditor();
+          }
+        } else if (tableStore.inlineEdit) {
+          editor.focus();
+        } else {
+          raf(() => {
+            editor.alignEditor(!isStickySupport() && lock ? findCell(tableStore, getColumnKey(column), lock) : cell);
+            editor.focus();
+          });
+        }
+      }
     }
   }
 }

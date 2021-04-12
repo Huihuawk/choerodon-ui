@@ -7,6 +7,7 @@ export interface Locale {
   Table: {
     show_cached_seletion;
     hide_cached_seletion;
+    selection_tips;
     edit_button;
     create_button;
     save_button;
@@ -18,6 +19,7 @@ export interface Locale {
     expand_button;
     collapse_button;
     export_button;
+    defalut_export;
     more_button;
     advanced_search;
     dirty_info;
@@ -28,7 +30,15 @@ export interface Locale {
     filter_bar_placeholder;
     advanced_query;
     advanced_query_conditions;
-    max_export;
+    export_failed;
+    download_button;
+    export_success;
+    export_ing;
+    retry_button;
+    file_name;
+    export_break;
+    export_operating;
+    export_waiting;
     more;
     enter_text_filter;
     clear_filter;
@@ -49,6 +59,16 @@ export interface Locale {
     please_enter;
     query_option_yes;
     query_option_no;
+    customization_settings;
+    column_settings;
+    restore_default;
+    left_lock;
+    right_lock;
+    unlocked;
+    unlock;
+    top;
+    up;
+    down;
   };
   Pagination: {
     page;
@@ -160,14 +180,14 @@ export interface Locale {
     other;
     series;
   };
-  Cascader:{
+  Cascader: {
     please_select;
     value_missing_no_label;
     value_missing;
     select_all;
     unselect_all;
   };
-  Screening:{
+  Screening: {
     selected;
     pack_up;
     more;

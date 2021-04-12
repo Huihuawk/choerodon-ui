@@ -220,6 +220,10 @@ export interface FormFieldProps extends DataSetComponentProps {
    * 字段 td 类名传递 支持个性化隐藏字段
    */
   fieldClassName?: string;
+  /**
+   * 阻止使用渲染器
+   */
+  preventRenderer?: boolean;
 }
 
 export class FormField<T extends FormFieldProps> extends DataSetComponent<T> {
@@ -545,11 +549,12 @@ export class FormField<T extends FormFieldProps> extends DataSetComponent<T> {
 
   getObservableProps(props, context) {
     return {
+      ...super.getObservableProps(props, context),
       name: props.name,
       record: 'record' in props ? props.record : context.record,
       dataSet: 'dataSet' in props ? props.dataSet : context.dataSet,
       dataIndex: defaultTo(props.dataIndex, context.dataIndex),
-      value: this.observableProps || 'value' in props ? props.value : props.defaultValue,
+      value: 'value' in props ? props.value : this.observableProps ? this.observableProps.value : props.defaultValue,
     };
   }
 
@@ -579,6 +584,7 @@ export class FormField<T extends FormFieldProps> extends DataSetComponent<T> {
       'trim',
       'newLine',
       'fieldClassName',
+      'preventRenderer',
     ]);
     otherProps.onChange = !this.isDisabled() && !this.isReadOnly() ? this.handleChange : noop;
     otherProps.onKeyDown = this.handleKeyDown;
@@ -847,8 +853,9 @@ export class FormField<T extends FormFieldProps> extends DataSetComponent<T> {
   }
 
   getTextNode(): ReactNode {
+    const { preventRenderer } = this.props;
     const text =
-      this.isFocused && this.editable
+      this.editable && (preventRenderer || this.isFocused)
         ? this.processValue(this.getValue())
         : this.processRenderer(this.getValue());
     return text;
@@ -869,12 +876,12 @@ export class FormField<T extends FormFieldProps> extends DataSetComponent<T> {
       dataSet,
       props: { renderer = this.defaultRenderer, name, maxTagTextLength },
     } = this;
-    let processValue = '';
+    let processValue;
     if (field && (field.lookup || field.options)) {
       processValue = field.getText(value) as string;
     }
     // 值集中不存在 再去取直接返回的值
-    const text = this.processText(processValue || this.getText(value));
+    const text = this.processText(isNil(processValue) ? this.getText(value) : processValue);
     return renderer
       ? renderer({
         value,
@@ -918,7 +925,7 @@ export class FormField<T extends FormFieldProps> extends DataSetComponent<T> {
     if (this.multiple) {
       const oldValues = this.getValues();
       if (values.length) {
-        this.setValue([...oldValues, ...values]);
+        this.setValue([...new Set([...oldValues, ...values])]);
       } else if (!oldValues.length) {
         this.setValue(this.emptyValue);
       }
@@ -934,17 +941,17 @@ export class FormField<T extends FormFieldProps> extends DataSetComponent<T> {
   @action
   prepareSetValue(...value: any[]): void {
     const { rangeTarget, range, rangeValue } = this;
-    const values = value.filter(item => !isEmpty(item));
+    const values = value.filter(item => isNumber(item) || !isEmpty(item));
     if (range) {
       if (rangeTarget !== undefined && rangeValue) {
         const [start, end] = rangeValue;
         const newValue = values.pop();
         rangeValue[rangeTarget] = newValue;
-        if (rangeTarget === 0 && newValue && end && this.isLowerRange(end, newValue)) {
+        if (rangeTarget === 0 && (newValue || isNumber(newValue)) && (end || isNumber(end)) && this.isLowerRange(end, newValue)) {
           rangeValue[rangeTarget] = end;
           rangeValue[1] = newValue;
         }
-        if (rangeTarget === 1 && newValue && start && this.isLowerRange(newValue, start)) {
+        if (rangeTarget === 1 && (newValue || isNumber(newValue)) && (start || isNumber(start)) && this.isLowerRange(newValue, start)) {
           rangeValue[rangeTarget] = start;
           rangeValue[0] = newValue;
         }

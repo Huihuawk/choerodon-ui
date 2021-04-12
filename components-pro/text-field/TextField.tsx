@@ -29,6 +29,8 @@ import Tooltip from '../tooltip/Tooltip';
 import { GroupItemCategory, ValueChangeAction } from './enum';
 import { ShowHelp } from '../field/enum';
 import { FieldFormat } from '../data-set/enum';
+import { LabelLayout } from '../form/interface';
+import { getProperty } from '../form/utils';
 
 let PLACEHOLDER_SUPPORT;
 
@@ -377,8 +379,15 @@ export class TextField<T extends TextFieldProps> extends FormField<T> {
     );
   }
 
+  // 处理 form 中的 labelLayout 为 placeholder 情况避免以前 placeholder 和 label 无法区分彼此。
   getPlaceholders(): string[] {
-    const placeholder = this.getProp('placeholder');
+    const { dataSet, record, props, labelLayout } = this;
+    const placeholderOrigin = this.getProp('placeholder');
+    const label = getProperty(props, 'label', dataSet, record);
+    let placeholder = placeholderOrigin 
+    if (labelLayout === LabelLayout.placeholder) {
+      placeholder = label && !this.isFocused ? label : placeholderOrigin || label ;
+    }
     const holders: string[] = [];
     return placeholder ? holders.concat(placeholder!) : holders;
   }
@@ -421,7 +430,7 @@ export class TextField<T extends TextFieldProps> extends FormField<T> {
     return (
       <span key="text" className={`${prefixCls}-range-text`}>
         {/* 确保 range-input 为第一个 当点击label的时候出了会让element聚焦以外还会让 label的第一个表单元素聚焦 因此导致意料之外的bug */}
-        <input
+        {!this.isDisabled() && <input
           {...props}
           className={`${prefixCls}-range-input`}
           key="text"
@@ -443,7 +452,7 @@ export class TextField<T extends TextFieldProps> extends FormField<T> {
           }
           readOnly={this.isReadOnly()}
           style={editorStyle}
-        />
+        />}
         <input
           tabIndex={-1}
           className={`${prefixCls}-range-start`}
@@ -593,7 +602,7 @@ export class TextField<T extends TextFieldProps> extends FormField<T> {
       otherProps.style = {
         ...otherProps.style,
         textIndent: -1000,
-        width: isFlat ? width : 'auto',
+        width: isFlat ? width : undefined,
       };
     } else if (isFlat) {
       otherProps.style = { width, ...otherProps.style };
@@ -834,7 +843,9 @@ export class TextField<T extends TextFieldProps> extends FormField<T> {
   @autobind
   handleMouseDown(e) {
     if (e.target !== this.element) {
-      e.preventDefault();
+      if (!this.isDisabled()) {
+        e.preventDefault();
+      }
       if (!this.isFocused) {
         this.focus();
       }

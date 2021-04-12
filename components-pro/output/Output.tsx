@@ -10,8 +10,10 @@ import autobind from '../_util/autobind';
 import { BooleanValue, FieldType } from '../data-set/enum';
 import ObserverCheckBox from '../check-box/CheckBox';
 import { processFieldValue } from '../data-set/utils';
+import isEmpty from '../_util/isEmpty';
 
-export interface OutputProps extends FormFieldProps {}
+export interface OutputProps extends FormFieldProps {
+}
 
 @observer
 export default class Output extends FormField<OutputProps> {
@@ -28,7 +30,8 @@ export default class Output extends FormField<OutputProps> {
   }
 
   @autobind
-  handleChange() {}
+  handleChange() {
+  }
 
   getOtherProps() {
     return omit(super.getOtherProps(), ['name']);
@@ -59,7 +62,8 @@ export default class Output extends FormField<OutputProps> {
     if (field && field.type === FieldType.boolean) {
       return <ObserverCheckBox disabled checked={value === field.get(BooleanValue.trueValue)} />;
     }
-    return super.defaultRenderer({ text, repeat, maxTagTextLength });
+    const result = super.defaultRenderer({ text, repeat, maxTagTextLength });
+    return isEmpty(result) ? getConfig('renderEmpty')('Output'): result;
   }
 
   getRenderedValue(): ReactNode {

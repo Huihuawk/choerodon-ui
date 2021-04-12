@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
 import { action, computed, get, IReactionDisposer, isArrayLike, observable, runInAction, set, toJS } from 'mobx';
-import axiosStatic, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import axiosStatic, { AxiosInstance, AxiosPromise, AxiosRequestConfig } from 'axios';
+import unionBy from 'lodash/unionBy';
 import omit from 'lodash/omit';
 import flatMap from 'lodash/flatMap';
 import isNumber from 'lodash/isNumber';
@@ -11,7 +12,6 @@ import defer from 'lodash/defer';
 import debounce from 'lodash/debounce';
 import warning from 'choerodon-ui/lib/_util/warning';
 import { getConfig } from 'choerodon-ui/lib/configure';
-import XLSX from 'xlsx';
 import localeContext, { $l } from '../locale-context';
 import axios from '../axios';
 import Record from './Record';
@@ -24,11 +24,13 @@ import {
   doExport,
   findBindFieldBy,
   findRootParent,
+  fixAxiosConfig,
   generateData,
   generateJSONData,
   generateResponseData,
   getFieldSorter,
   getOrderFields,
+  getSpliceRecord,
   getSplitValue,
   isDirtyRecord,
   prepareForSubmit,
@@ -39,11 +41,13 @@ import {
   sortTree,
   useCascade,
   useSelected,
+  normalizeGroups,
+  exportExcel,
 } from './utils';
 import EventManager from '../_util/EventManager';
 import DataSetSnapshot from './DataSetSnapshot';
 import confirm from '../modal/confirm';
-import { DataSetEvents, DataSetSelection, DataSetStatus, DataToJSON, ExportMode, FieldType, RecordStatus, SortOrder } from './enum';
+import { DataSetEvents, DataSetSelection, DataSetExportStatus, DataSetStatus, DataToJSON, ExportMode, FieldType, RecordStatus, SortOrder } from './enum';
 import { Lang } from '../locale-context/enum';
 import isEmpty from '../_util/isEmpty';
 import * as ObjectChainValue from '../_util/ObjectChainValue';
@@ -54,18 +58,11 @@ import { confirmProps } from '../modal/utils';
 import DataSetRequestError from './DataSetRequestError';
 import defaultFeedback, { FeedBack } from './FeedBack';
 
-function getSpliceRecord(records: Record[], inserts: Record[], fromRecord?: Record): Record | undefined {
-  if (fromRecord) {
-    if (inserts.includes(fromRecord)) {
-      return getSpliceRecord(records, inserts, records[records.indexOf(fromRecord) + 1]);
-    }
-    return fromRecord;
-  }
-}
-
 export type DataSetChildren = { [key: string]: DataSet };
 
 export type Events = { [key: string]: Function };
+
+export type Group = { name: string, value: any, records: Record[], subGroups: Group[] };
 
 export interface DataSetProps {
   /**
@@ -318,6 +315,8 @@ export default class DataSet extends EventManager {
 
   @observable status: DataSetStatus;
 
+  @observable exportStatus: DataSetExportStatus | undefined;
+
   @observable currentPage: number;
 
   @observable selection: DataSetSelection | false;
@@ -376,7 +375,7 @@ export default class DataSet extends EventManager {
       if (ds) {
         // 初始化时如果直接执行create，mobx会报错，所以使用了defer
         ds.pending.add(
-          new Promise(reslove => {
+          new Promise<void>(reslove => {
             defer(() => {
               if (ds.records.length === 0) {
                 ds.create();
@@ -583,13 +582,7 @@ export default class DataSet extends EventManager {
       if (index !== -1) {
         if (this.paging === 'server') {
           const currentParent = findRootParent(current);
-          let parentIndex = -1;
-          this.treeData.forEach((item, indexTree) => {
-            if (this.indexOf(item) === this.indexOf(currentParent)) {
-              parentIndex = indexTree;
-            }
-          });
-          return parentIndex;
+          return this.treeData.findIndex((item) => item.index === currentParent.index);
         }
         return index + (currentPage - 1) * pageSize;
       }
@@ -627,6 +620,33 @@ export default class DataSet extends EventManager {
   get paging(): boolean | 'server' {
     const { idField, parentField, paging } = this.props;
     return (paging === `server`) && parentField && idField ? paging : (parentField === undefined || idField === undefined) && !!paging!;
+  }
+
+  @computed
+  get groups() {
+    return [...this.fields.entries()]
+      .reduce<string[]>((arr, [name, field]) => {
+        const group = field.get('group');
+        if (isNumber(group)) {
+          arr[group as number] = name;
+        } else if (group === true && !arr[0]) {
+          arr[0] = name;
+        }
+        return arr;
+      }, [])
+      .filter(group => group !== undefined);
+  }
+
+  @computed
+  get groupedRecords(): Group[] {
+    const { groups, records } = this;
+    return normalizeGroups(groups, records);
+  }
+
+  @computed
+  get groupedTreeRecords(): Group[] {
+    const { groups, treeRecords } = this;
+    return normalizeGroups(groups, treeRecords);
   }
 
   set paging(paging) {
@@ -850,9 +870,25 @@ export default class DataSet extends EventManager {
     return this.pending.add(this.doQuery(page, params));
   }
 
+  /**
+   * 查询更多记录，查询到的结果会拼接到原有数据之后
+   * @param page 页码
+   * @param params 查询参数
+   * @return Promise
+   */
+  queryMore(page?: number, params?: object): Promise<any> {
+    return this.pending.add(this.doQueryMore(page, params));
+  }
+
   async doQuery(page, params?: object): Promise<any> {
     const data = await this.read(page, params);
     this.loadDataFromResponse(data);
+    return data;
+  }
+
+  async doQueryMore(page, params?: object): Promise<any> {
+    const data = await this.read(page, params);
+    this.appendDataFromResponse(data);
     return data;
   }
 
@@ -879,7 +915,7 @@ export default class DataSet extends EventManager {
    * @param object columns 导出的列
    * @param number exportQuantity 导出数量
    */
-  async export(columns: any = {}, exportQuantity: number = 0): Promise<void> {
+  async export(columns: any = {}, exportQuantity: number = 0): Promise<void | any[]> {
     if (this.checkReadable(this.parent) && (await this.ready())) {
       const data = await this.generateQueryParameter();
       data._HAP_EXCEL_EXPORT_COLUMNS = columns;
@@ -896,10 +932,10 @@ export default class DataSet extends EventManager {
           })) !== false
         ) {
           const ExportQuantity = exportQuantity > 1000 ? 1000 : exportQuantity;
-          if (this.exportMode === ExportMode.client) {
-            this.doClientExport(data, ExportQuantity);
-          } else {
+          if (this.exportMode !== ExportMode.client) {
             doExport(this.axios.getUri(newConfig), newConfig.data, newConfig.method);
+          } else {
+            return this.doClientExport(data, ExportQuantity, false);
           }
         }
       } else {
@@ -908,15 +944,18 @@ export default class DataSet extends EventManager {
     }
   }
 
-  private async doClientExport(data: any, quantity: number) {
-    const columnsExport = data._HAP_EXCEL_EXPORT_COLUMNS;
-    delete data._HAP_EXCEL_EXPORT_COLUMNS;
-    const params = { ...this.generateQueryString(1, quantity) };
-    const newConfig = axiosConfigAdapter('read', this, data, params);
-    const result = await this.axios(newConfig);
+
+  /**
+   * 可以把json数组通过ds配置转化成可以直接浏览的数据信息
+   * @param result 需要转化内容
+   * @param columnsExport 表头信息
+   */
+  displayDataTransform(result: any[], columnsExport) {
     const newResult: any[] = [];
-    if (result[this.dataKey] && result[this.dataKey].length > 0) {
-      const processData = toJS(this.processData(result[this.dataKey])).map((item) => item.data);
+    if (result && result.length > 0) {
+      // check: 这里做性能优化去掉实例化为record 从demo来看没啥问题
+      // toJS(this.processData(result)).map((item) => item.data);
+      const processData = result
       processData.forEach((itemValue) => {
         const dataItem = {};
         const columnsExportkeys = Object.keys(columnsExport);
@@ -931,18 +970,64 @@ export default class DataSet extends EventManager {
               columnsExportkeys[i],
               true,
             );
-
           }
           dataItem[columnsExportkeys[i]] = processExportValue(processItemValue, exportField);
         }
         newResult.push(dataItem);
       });
     }
-    newResult.unshift(columnsExport);
-    const ws = XLSX.utils.json_to_sheet(newResult, { skipHeader: true }); /* 新建空workbook，然后加入worksheet */
-    const wb = XLSX.utils.book_new();  /* 新建book */
-    XLSX.utils.book_append_sheet(wb, ws); /* 生成xlsx文件(book,sheet数据,sheet命名) */
-    XLSX.writeFile(wb, `${this.name}.xlsx`); /* 写文件(book,xlsx文件名称) */
+    return newResult
+  }
+
+  /**
+   * 客户端导出方法
+   * @param data 表头数据
+   * @param quantity 输入一次导出数量
+   * @param isFile 是否导出为文件
+   */
+  @action
+  private async doClientExport(data: any, quantity: number, isFile: boolean = true): Promise<any[] | void> {
+    const columnsExport = data._HAP_EXCEL_EXPORT_COLUMNS;
+    delete data._HAP_EXCEL_EXPORT_COLUMNS;
+    const { totalCount } = this;
+    runInAction(() => {
+      this.exportStatus = DataSetExportStatus.start;
+    })
+    let newResult: any[] = [];
+    if (totalCount > 0) {
+      const queryTime = Math.ceil(totalCount / quantity)
+      const queryExportList: AxiosPromise<any>[] = [];
+      for (let i = 0; i < queryTime; i++) {
+        const params = { ...this.generateQueryString(1 + i, quantity) };
+        const newConfig = axiosConfigAdapter('read', this, data, params);
+        queryExportList.push(this.axios(newConfig))
+        runInAction(() => {
+          this.exportStatus = DataSetExportStatus.exporting;
+        })
+      }
+      return Promise.all(queryExportList).then((resultValue) => {
+        const reducer = (accumulator: any[], currentValue: any[]) => [...accumulator, ...currentValue];
+        const todataList = (item) => item ? item[this.dataKey] : []
+        runInAction(() => {
+          this.exportStatus = DataSetExportStatus.progressing;
+        })
+        const exportAlldate = resultValue.map(todataList).reduce(reducer);
+        newResult = this.displayDataTransform(exportAlldate, columnsExport);
+        newResult.unshift(columnsExport);
+        runInAction(() => {
+          this.exportStatus = DataSetExportStatus.success;
+        })
+        if (isFile) {
+          exportExcel(newResult, this.name);
+        } else {
+          return newResult
+        }
+      }).catch(() => {
+        runInAction(() => {
+          this.exportStatus = DataSetExportStatus.failed;
+        })
+      })
+    }
   }
 
   /**
@@ -1601,17 +1686,7 @@ export default class DataSet extends EventManager {
    * @returns 字段名列表
    */
   getGroups(): string[] {
-    return [...this.fields.entries()]
-      .reduce((arr: string[], [name, field]) => {
-        const group = field.get('group');
-        if (isNumber(group)) {
-          arr[group as number] = name;
-        } else if (group === true && !arr[0]) {
-          arr[0] = name;
-        }
-        return arr;
-      }, [])
-      .filter(group => group !== undefined);
+    return this.groups;
   }
 
   initFields(fields: FieldProps[]): void {
@@ -1748,6 +1823,21 @@ Then the query method will be auto invoke.`,
     } else {
       this.queryParameter[para] = value;
     }
+  }
+
+  @action
+  appendData(allData: (object | Record)[] = []): DataSet {
+    const {
+      paging,
+      pageSize,
+    } = this;
+    allData = paging ? allData.slice(0, pageSize) : allData;
+    this.fireEvent(DataSetEvents.beforeAppend, { dataSet: this, data: allData });
+    const appendData = this.processData(allData);
+    this.originalData = unionBy(this.originalData, appendData, 'key');
+    this.records = unionBy(this.records, appendData, 'key');
+    this.fireEvent(DataSetEvents.append, { dataSet: this });
+    return this;
   }
 
   @action
@@ -1918,6 +2008,16 @@ Then the query method will be auto invoke.`,
     return this;
   }
 
+  private appendDataFromResponse(resp: any): DataSet {
+    if (resp) {
+      const { dataKey } = this;
+      const data: object[] = generateResponseData(resp, dataKey);
+      this.appendData(data);
+    }
+    return this;
+
+  }
+
   // private groupData(allData: object[]): object[] {
   //   return this.getGroups().reverse()
   //     .reduce((arr, name) => arr.sort(
@@ -1971,9 +2071,11 @@ Then the query method will be auto invoke.`,
             data: newConfig.data,
           });
           if (queryEventResult) {
-            const result = await this.axios(newConfig);
+            const result = await this.axios(fixAxiosConfig(newConfig));
             runInAction(() => {
-              this.currentPage = page;
+              if (page >= 0) {
+                this.currentPage = page;
+              }
             });
             return this.handleLoadSuccess(result);
           }
@@ -2189,16 +2291,18 @@ Then the query method will be auto invoke.`,
 
   /**
    * page相关请求设置
-   * @param page 在那个页面
+   * @param page 在那个页面, 小于0时不分页
    * @param pageSizeInner 页面大小
    */
-  private generatePageQueryString(page: number, pageSizeInner?: number) {
-    const { paging, pageSize } = this;
-    if (isNumber(pageSizeInner)) {
-      return { page, pagesize: pageSizeInner };
-    }
-    if (paging === true || paging === 'server') {
-      return { page, pagesize: pageSize };
+  private generatePageQueryString(page: number, pageSizeInner?: number): { page?: number, pagesize?: number | undefined } {
+    if (page >= 0) {
+      const { paging, pageSize } = this;
+      if (isNumber(pageSizeInner)) {
+        return { page, pagesize: pageSizeInner };
+      }
+      if (paging === true || paging === 'server') {
+        return { page, pagesize: pageSize };
+      }
     }
     return {};
   }
@@ -2221,7 +2325,7 @@ Then the query method will be auto invoke.`,
 
   /**
    * 返回configure 配置的值
-   * @param page 在那个页面
+   * @param page 在那个页面, 小于0时不分页
    * @param pageSizeInner 页面大小
    */
   private generateQueryString(page: number, pageSizeInner?: number) {

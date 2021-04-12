@@ -4,14 +4,15 @@
 @textarea-prefix: ~'@{c7n-pro-prefix}-textarea';
 
 .@{textarea-prefix} {
+  min-height: .3rem;
   .input;
 
   &,
   &-placeholder {
-    padding: @input-padding-horizontal;
+    padding: .07rem @input-padding-horizontal;
   }
 
-  &-invalid&-wrapper{
+  &-invalid&-wrapper {
     background-color: transparent;
   }
 

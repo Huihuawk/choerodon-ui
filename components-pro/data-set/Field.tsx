@@ -5,12 +5,13 @@ import isFunction from 'lodash/isFunction';
 import isEqual from 'lodash/isEqual';
 import isObject from 'lodash/isObject';
 import merge from 'lodash/merge';
+import defer from 'lodash/defer';
 import unionBy from 'lodash/unionBy';
 import { AxiosRequestConfig } from 'axios';
 import { getConfig } from 'choerodon-ui/lib/configure';
 import warning from 'choerodon-ui/lib/_util/warning';
 import { ReactNode } from 'react';
-import DataSet from './DataSet';
+import DataSet, { DataSetProps } from './DataSet';
 import Record from './Record';
 import Validator, { CustomValidator, ValidationMessages } from '../validator/Validator';
 import { DataSetEvents, DataSetSelection, FieldFormat, FieldIgnore, FieldTrim, FieldType, SortOrder } from './enum';
@@ -125,6 +126,14 @@ export type FieldProps = {
    */
   min?: MomentInput | null;
   /**
+   * 小数点精度
+   */
+  precision?: number;
+  /**
+   * 千分位分组显示
+   */
+  numberGrouping?: boolean;
+  /**
    * 校验器
    */
   validator?: CustomValidator;
@@ -172,6 +181,10 @@ export type FieldProps = {
    * 下拉框组件的菜单数据集
    */
   options?: DataSet | string;
+  /**
+   * 值集组件的数据集配置
+   */
+  optionsProps?: DataSetProps;
   /**
    * 是否分组
    * 如果是number，则为分组的顺序
@@ -328,7 +341,7 @@ export default class Field {
 
   lastDynamicProps: any = {};
 
-  changingProps: any = {};
+  validatorPropKeys: string[] = [];
 
   isDynamicPropsComputing: boolean = false;
 
@@ -388,6 +401,7 @@ export default class Field {
     }
     // 确保 lookup 相关配置介入观察
     lookupStore.getAxiosConfig(this);
+    const optionsProps = this.get('optionsProps');
     const { lookup, type } = this;
     if (lookup) {
       const parentField = this.get('parentField');
@@ -399,12 +413,13 @@ export default class Field {
         selection,
         idField,
         parentField,
+        ...optionsProps,
       });
     }
     const lovCode = this.get('lovCode');
     if (lovCode) {
       if (type === FieldType.object || type === FieldType.auto) {
-        return lovCodeStore.getLovDataSet(lovCode, this);
+        return lovCodeStore.getLovDataSet(lovCode, this, optionsProps);
       }
     }
     return undefined;
@@ -833,7 +848,7 @@ export default class Field {
       const multiple = this.get('multiple');
       const unique = this.get('unique');
       const defaultValidationMessages = this.get('defaultValidationMessages');
-      return {
+      const validatorProps = {
         type,
         required,
         record,
@@ -854,6 +869,10 @@ export default class Field {
         format,
         defaultValidationMessages,
       };
+      if (!this.validatorPropKeys.length) {
+        this.validatorPropKeys = Object.keys(validatorProps);
+      }
+      return validatorProps;
     }
   }
 
@@ -974,18 +993,13 @@ export default class Field {
 
   private checkDynamicProp(propsName, newProp) {
     const oldProp = this.lastDynamicProps[propsName];
-    if (this.changingProps[propsName] && !isEqualDynamicProps(oldProp, newProp)) {
-      this.changingProps[propsName] = true;
-      runInAction(() => {
-        if (propsName in this.validator.props || propsName === 'validator') {
+    if (!isEqualDynamicProps(oldProp, newProp)) {
+      defer(action(() => {
+        if (this.validatorPropKeys.includes(propsName) || propsName === 'validator') {
           this.validator.reset();
-          // validator && DynamicProps 存在 reset 后需要重新校验该条 record 对应字段校验
-          // if (this.record) this.record.validate();
-          // this.checkValidity();
         }
         this.handlePropChange(propsName, newProp, oldProp);
-      });
-      this.changingProps[propsName] = false;
+      }));
     }
     this.lastDynamicProps[propsName] = newProp;
   }
@@ -1014,12 +1028,13 @@ export default class Field {
         'lovPara',
         'cascadeMap',
         'lovQueryUrl',
+        'optionsProps',
       ].includes(propsName)
     ) {
       this.set('lookupData', undefined);
       this.fetchLookup();
     }
-    if (['lovCode', 'lovDefineAxiosConfig', 'lovDefineUrl'].includes(propsName)) {
+    if (['lovCode', 'lovDefineAxiosConfig', 'lovDefineUrl', 'optionsProps'].includes(propsName)) {
       this.fetchLovConfig();
     }
   }

@@ -1,4 +1,4 @@
-import React, { MouseEventHandler, ReactElement, ReactNode } from 'react';
+import React, { CSSProperties, MouseEventHandler, ReactElement, ReactNode } from 'react';
 import PropTypes from 'prop-types';
 import classNames from 'classnames';
 import raf from 'raf';
@@ -20,7 +20,7 @@ import {
   DropResult,
   ResponderProvided,
 } from 'react-beautiful-dnd';
-import { getConfig, getProPrefixCls } from 'choerodon-ui/lib/configure';
+import { getConfig } from 'choerodon-ui/lib/configure';
 import warning from 'choerodon-ui/lib/_util/warning';
 import { pxToRem, toPx } from 'choerodon-ui/lib/_util/UnitConvertor';
 import measureScrollbar from 'choerodon-ui/lib/_util/measureScrollbar';
@@ -33,7 +33,7 @@ import DataSet from '../data-set/DataSet';
 import Record from '../data-set/Record';
 import Field from '../data-set/Field';
 import { TransportProps } from '../data-set/Transport';
-import TableStore, { DRAG_KEY } from './TableStore';
+import TableStore from './TableStore';
 import TableHeader from './TableHeader';
 import autobind from '../_util/autobind';
 import Pagination, { PaginationProps } from '../pagination/Pagination';
@@ -45,7 +45,6 @@ import TableTBody from './TableTBody';
 import TableFooter from './TableFooter';
 import {
   ColumnLock,
-  ColumnsEditType,
   DragColumnAlign,
   HighLightRowType,
   ScrollPosition,
@@ -58,19 +57,19 @@ import {
   TablePaginationPosition,
   TableQueryBarType,
 } from './enum';
-import Switch from '../switch/Switch';
-import Tooltip from '../tooltip/Tooltip';
-import { $l } from '../locale-context';
 import TableQueryBar from './query-bar';
 import ToolBar from './query-bar/TableToolBar';
 import FilterBar from './query-bar/TableFilterBar';
 import AdvancedQueryBar from './query-bar/TableAdvancedQueryBar';
 import ProfessionalBar from './query-bar/TableProfessionalBar';
 import DynamicFilterBar from './query-bar/TableDynamicFilterBar';
-import { findIndexedSibling, getHeight, getPaginationPosition, isCanEdictingRow } from './utils';
+import { findIndexedSibling, getHeight, getPaginationPosition, isCanEdictingRow, isDropresult, isStickySupport } from './utils';
 import { ButtonProps } from '../button/Button';
 import TableBody from './TableBody';
 import VirtualWrapper from './VirtualWrapper';
+import ModalProvider from '../modal-provider/ModalProvider';
+import SelectionTips from './SelectionTips';
+import { DataSetSelection } from '../data-set/enum';
 
 export type TableButtonProps = ButtonProps & { afterClick?: MouseEventHandler<any>; children?: ReactNode; };
 
@@ -183,13 +182,13 @@ export interface DragTableRowProps extends TableRowProps {
 }
 
 export interface RowRenderIcon {
-  column: ColumnProps;
-  dataSet: DataSet;
-  snapshot: DraggableStateSnapshot;
+  record: Record;
 }
 
 export interface ColumnRenderIcon {
-  record: Record;
+  column: ColumnProps;
+  dataSet: DataSet;
+  snapshot?: DraggableStateSnapshot;
 }
 
 export interface DragRender {
@@ -199,30 +198,28 @@ export interface DragRender {
   renderIcon?: ((rowRenderIcon: RowRenderIcon) => ReactElement<any>) | ((columnRenderIcon: ColumnRenderIcon) => ReactElement<any>);
 }
 
-export interface ChangeColumns {
-  column: ColumnProps;
-  columns: ColumnProps[];
-  type: ColumnsEditType;
+export interface Customized {
+  columns: object,
 }
 
 let _instance;
 // 构造一个单例table来防止body下不能有table元素的报错
-export const instance = (): Instance => {
+export const instance = (wrapperClassName: string, prefixCls?: string): Instance => {
   // Using a table as the portal so that we do not get react
   // warnings when mounting a tr element
   const _tableContain = (): Instance => {
     const table: HTMLElement = document.createElement('table');
-    table.classList.add(`${getProPrefixCls('table')}-drag-container`);
+    table.className = wrapperClassName;
 
     const thead: HTMLElement = document.createElement('thead');
-    thead.classList.add(`${getProPrefixCls('table')}-thead`);
+    thead.className = `${prefixCls}-thead`;
     table.appendChild(thead);
 
     const headtr: HTMLElement = document.createElement('tr');
     thead.appendChild(headtr);
     const tbody: HTMLElement = document.createElement('tbody');
 
-    tbody.classList.add(`${getProPrefixCls('table')}-tbody`);
+    tbody.className = `${prefixCls}-tbody`;
     table.appendChild(tbody);
     if (!document.body) {
       throw new Error('document.body required a body to append');
@@ -273,6 +270,10 @@ export interface TableProps extends DataSetComponentProps {
    * 在其他模式下是不是要是要rowbox
    */
   alwaysShowRowBox?: boolean;
+  /**
+   * 显示选择提示
+   */
+  showSelectionTips?: boolean;
   /**
    * 设置行属性
    * @param {onRowProps} props
@@ -406,9 +407,21 @@ export interface TableProps extends DataSetComponentProps {
    */
   selectedHighLightRow?: boolean;
   /**
+   * 奇偶行
+   */
+  parityRow?: boolean;
+  /**
    * 可调整列宽
    */
   columnResizable?: boolean;
+  /**
+   * 可调整列显示
+   */
+  columnHideable?: boolean;
+  /**
+   * 可编辑列标题
+   */
+  columnTitleEditable?: boolean;
   /**
    * 显示原始值
    */
@@ -425,6 +438,10 @@ export interface TableProps extends DataSetComponentProps {
    * 虚拟滚动
    */
   virtual?: boolean;
+  /**
+   * 虚拟单元格
+   */
+  virtualCell?: boolean;
   /**
    * 虚拟滚动是否显示加载
    */
@@ -446,17 +463,21 @@ export interface TableProps extends DataSetComponentProps {
    */
   dragColumnAlign?: DragColumnAlign;
   /**
-   * 开启列拖拽，但是无法使用宽度拖拽
+   * 开启列拖拽
    */
-  dragColumn?: boolean;
+  columnDraggable?: boolean;
   /**
    * 开启行拖拽
    */
-  dragRow?: boolean;
+  rowDraggable?: boolean;
   /**
    * 拖拽触发事件
    */
   onDragEnd?: (dataSet: DataSet, columns: ColumnProps[], resultDrag: DropResult, provided: ResponderProvided) => void
+  /**
+   * 拖拽触发事件位置切换前回调
+   */
+  onDragEndBefore?: (dataSet: DataSet, columns: ColumnProps[], resultDrag: DropResult, provided: ResponderProvided) => DropResult | boolean | void,
   /**
    * 渲染列拖拽
    */
@@ -470,29 +491,51 @@ export interface TableProps extends DataSetComponentProps {
    */
   editorNextKeyEnterDown?: boolean;
   /**
-   * 优先级高于colums，可以实现表头文字修改和列的位置修改
-   */
-  columnsMergeCoverage?: ColumnProps[];
-  /**
-   * 拖拽列和修改表头触发事件
-   */
-  columnsOnChange?: (change: ChangeColumns) => void;
-  /**
-   * 合并列信息选择，目前可以选择表头文字或者表的位置进行合并。
-   */
-  columnsEditType?: ColumnsEditType,
-  /**
-   * 拖拽触发事件位置切换前回调
-   */
-  onDragEndBefore?: (dataSet: DataSet, columns: ColumnProps[], resultDrag: DropResult, provided: ResponderProvided) => DropResult | boolean | void,
-  /**
    * 是否开启关闭快捷键（只关闭新加组合快捷键）
    */
   keyboard?: boolean,
-  /*
+  /**
    * 筛选条属性配置
    */
   dynamicFilterBar?: DynamicFilterBarConfig,
+  /**
+   * 异步树
+   */
+  treeAsync?: boolean;
+  /**
+   * 树节点展开时，加载数据钩子
+   */
+  treeLoadData?: ({ record, dataSet }) => Promise<any>,
+  /**
+   * 显示行号
+   */
+  rowNumber?: boolean | ((props: { record?: Record | null, dataSet?: DataSet | null, text: string, pathNumbers: number[] }) => ReactNode);
+  /**
+   * 个性化编码
+   */
+  customizedCode?: string;
+  /**
+   * 是否显示个性化设置入口按钮
+   */
+  customizable?: string;
+  /**
+   * @deprecated
+   * 同 columnDraggable
+   */
+  dragColumn?: boolean;
+  /**
+   * @deprecated
+   * 同 rowDraggable
+   */
+  dragRow?: boolean;
+  /**
+   * 客户端导出一次查询数量配置
+   */
+  clientExportQuantity?: number;
+  /**
+   * 可以修改由于样式导致的虚拟高度和rowHeight不一致
+  */
+  virtualRowHeight?: number;
 }
 
 @observer
@@ -595,6 +638,7 @@ export default class Table extends DataSetComponent<TableProps> {
     filterBarPlaceholder: PropTypes.string,
     highLightRow: PropTypes.oneOfType([PropTypes.bool, PropTypes.oneOf([HighLightRowType.focus, HighLightRowType.click])]),
     selectedHighLightRow: PropTypes.bool,
+    parityRow: PropTypes.bool,
     autoMaxWidth: PropTypes.bool,
     /**
      * 设置drag框体位置
@@ -603,16 +647,14 @@ export default class Table extends DataSetComponent<TableProps> {
     /**
      * 开启列拖拽，但是无法使用宽度拖拽
      */
-    dragColumn: PropTypes.bool,
+    columnDraggable: PropTypes.bool,
     /**
      * 开启行拖拽
      */
-    dragRow: PropTypes.bool,
-    columnsMergeCoverage: PropTypes.array,
+    rowDraggable: PropTypes.bool,
     columnsDragRender: PropTypes.object,
     expandIcon: PropTypes.func,
     rowDragRender: PropTypes.object,
-    columnsEditType: PropTypes.oneOf([ColumnsEditType.all, ColumnsEditType.header, ColumnsEditType.order]),
     onDragEndBefore: PropTypes.func,
     /**
      * 开启新建自动定位
@@ -626,6 +668,14 @@ export default class Table extends DataSetComponent<TableProps> {
      * 是否单独处理column footer
      */
     autoFootHeight: PropTypes.bool,
+    /**
+     * 客户端查询导出，查询数目设置
+     */
+    clientExportQuantity: PropTypes.number,
+    /**
+     * 可以修改由于样式导致的虚拟高度和rowHeight不一致
+     */
+    virtualRowHeight: PropTypes.number,
     ...DataSetComponent.propTypes,
   };
 
@@ -642,9 +692,9 @@ export default class Table extends DataSetComponent<TableProps> {
     virtual: false,
     virtualSpin: false,
     autoHeight: false,
-    autoMaxWidth: false,
+    autoMaxWidth: true,
     autoFootHeight: false,
-    columnsMergeCoverage: [],
+    clientExportQuantity: 100,
   };
 
   tableStore: TableStore = new TableStore(this);
@@ -665,10 +715,6 @@ export default class Table extends DataSetComponent<TableProps> {
 
   fixedColumnsBodyRight: HTMLDivElement | null;
 
-  dragColumnsBodyLeft: HTMLDivElement | null;
-
-  dragColumnsBodyRight: HTMLDivElement | null;
-
   lastScrollLeft: number;
 
   scrollPosition: ScrollPosition;
@@ -676,32 +722,29 @@ export default class Table extends DataSetComponent<TableProps> {
   refSpin: HTMLDivElement | null = null;
 
   get currentRow(): HTMLTableRowElement | null {
+    const { tableStore: { prefixCls } } = this;
     return this.element.querySelector(
-      `.${this.prefixCls}-row-current`,
+      `.${prefixCls}-row-current`,
     ) as HTMLTableRowElement | null;
   }
 
   get firstRow(): HTMLTableRowElement | null {
+    const { tableStore: { prefixCls } } = this;
     return this.element.querySelector(
-      `.${this.prefixCls}-row:first-child`,
+      `.${prefixCls}-row:first-child`,
     ) as HTMLTableRowElement | null;
   }
 
   get lastRow(): HTMLTableRowElement | null {
+    const { tableStore: { prefixCls } } = this;
     return this.element.querySelector(
-      `.${this.prefixCls}-row:last-child`,
+      `.${prefixCls}-row:last-child`,
     ) as HTMLTableRowElement | null;
   }
 
   @autobind
   saveResizeRef(node: HTMLDivElement | null) {
     this.resizeLine = node;
-  }
-
-  @autobind
-  @action
-  handleSwitchChange(value) {
-    this.tableStore.showCachedSeletion = !!value;
   }
 
   @autobind
@@ -1064,27 +1107,36 @@ export default class Table extends DataSetComponent<TableProps> {
       'highLightRow',
       'selectedHighLightRow',
       'columnResizable',
+      'columnTitleEditable',
       'pristine',
       'expandIcon',
       'spin',
       'virtual',
+      'virtualCell',
       'virtualSpin',
       'autoHeight',
       'autoFootHeight',
       'useMouseBatchChoose',
       'autoMaxWidth',
       'dragColumnAlign',
-      'dragColumn',
-      'dragRow',
+      'columnDraggable',
+      'rowDraggable',
       'onDragEnd',
-      'columnsOnChange',
-      'columnsMergeCoverage',
-      'columnsEditType',
       'rowDragRender',
       'columnsDragRender',
+      'editorNextKeyEnterDown',
       'onDragEndBefore',
       'keyboard',
       'dynamicFilterBar',
+      'parityRow',
+      'rowNumber',
+      'treeAsync',
+      'treeLoadData',
+      'customizable',
+      'customizedCode',
+      'dragColumn',
+      'dragRow',
+      'clientExportQuantity',
     ]);
     otherProps.onKeyDown = this.handleKeyDown;
     const { rowHeight } = this.tableStore;
@@ -1096,11 +1148,11 @@ export default class Table extends DataSetComponent<TableProps> {
 
   getClassName(): string | undefined {
     const {
-      prefixCls,
-      tableStore: { border, rowHeight },
+      tableStore: { prefixCls, border, rowHeight, parityRow },
     } = this;
     return super.getClassName(`${prefixCls}-scroll-position-left`, {
       [`${prefixCls}-bordered`]: border,
+      [`${prefixCls}-parity-row`]: parityRow,
       [`${prefixCls}-row-height-fixed`]: isNumber(rowHeight),
     });
   }
@@ -1127,6 +1179,13 @@ export default class Table extends DataSetComponent<TableProps> {
   getSpinProps() {
     const { spin, dataSet } = this.props;
     if (spin && !isUndefined(spin.spinning)) return { ...spin };
+    const { loading } = this.tableStore;
+    if (loading) {
+      return {
+        ...spin,
+        spinning: true,
+      };
+    }
     return {
       ...spin,
       dataSet,
@@ -1155,12 +1214,30 @@ export default class Table extends DataSetComponent<TableProps> {
   componentWillMount() {
     super.componentWillMount();
     this.initDefaultExpandedRows();
-    this.processDataSetListener(true);
+    this.connect();
   }
 
   componentDidMount() {
     this.syncSize();
     this.syncSizeInFrame();
+  }
+
+  componentWillReceiveProps(nextProps, nextContext) {
+    super.componentWillReceiveProps(nextProps, nextContext);
+    this.disconnect();
+    this.tableStore.updateProps(nextProps);
+    this.connect();
+  }
+
+  componentWillUnmount() {
+    this.disconnect();
+    if (this.scrollId !== undefined) {
+      raf.cancel(this.scrollId);
+    }
+  }
+
+  connect() {
+    this.processDataSetListener(true);
     // 为什么使用 pointerup
     // 因为需要对disabled的元素进行特殊处理
     // 因为状态的改变依赖 mouseup 而在disabled的元素上 无法触发mouseup事件
@@ -1170,21 +1247,15 @@ export default class Table extends DataSetComponent<TableProps> {
     // https://stackoverflow.com/questions/62081666/the-event-of-the-document-is-not-triggered-when-it-is-on-a-disabled-element
     // 而使用指针事件可以突破disabled的限制
     // https://stackoverflow.com/questions/62126515/how-to-get-the-state-of-the-mouse-through-javascript/62127845#62127845
-    document.addEventListener('pointerup', this.handleDragMouseUp);
+    if (this.tableStore.useMouseBatchChoose) {
+      document.addEventListener('pointerup', this.handleDragMouseUp);
+    }
   }
 
-  componentWillReceiveProps(nextProps, nextContext) {
-    super.componentWillReceiveProps(nextProps, nextContext);
+  disconnect() {
     this.processDataSetListener(false);
-    this.tableStore.setProps(nextProps);
-    this.processDataSetListener(true);
-  }
-
-  componentWillUnmount() {
-    this.processDataSetListener(false);
-    document.removeEventListener('pointerup', this.handleDragMouseUp);
-    if (this.scrollId !== undefined) {
-      raf.cancel(this.scrollId);
+    if (this.tableStore.useMouseBatchChoose) {
+      document.removeEventListener('pointerup', this.handleDragMouseUp);
     }
   }
 
@@ -1203,9 +1274,8 @@ export default class Table extends DataSetComponent<TableProps> {
 
   render() {
     const {
-      prefixCls,
       tableStore,
-      tableStore: { virtual, overflowX, isAnyColumnsLeftLock, isAnyColumnsRightLock, dragRow, dragColumnAlign },
+      tableStore: { prefixCls, virtual, overflowX, overflowY, isAnyColumnsLeftLock, isAnyColumnsRightLock },
       props: {
         style,
         spin,
@@ -1218,6 +1288,7 @@ export default class Table extends DataSetComponent<TableProps> {
         filterBarPlaceholder,
         summaryBar,
         dynamicFilterBar,
+        clientExportQuantity,
       },
     } = this;
     const content = this.getTable();
@@ -1230,57 +1301,60 @@ export default class Table extends DataSetComponent<TableProps> {
       <ReactResizeObserver resizeProp="width" onResize={this.handleResize}>
         <div {...this.getWrapperProps()}>
           <TableContext.Provider value={context}>
-            {this.getHeader()}
-            <TableQueryBar
-              prefixCls={prefixCls}
-              buttons={buttons}
-              pagination={pagination}
-              queryFields={queryFields}
-              summaryBar={summaryBar}
-              dynamicFilterBar={dynamicFilterBar}
-              queryFieldsLimit={queryFieldsLimit}
-              summaryFieldsLimit={summaryFieldsLimit}
-              filterBarFieldName={filterBarFieldName}
-              filterBarPlaceholder={filterBarPlaceholder}
-            />
-            <Spin {...tableSpinProps} {...this.getSpinProps()} key="content">
-              {
-                virtual && (
-                  <div
-                    ref={(node) => this.refSpin = node}
-                    style={{
-                      display: 'none',
-                    }}
-                  >
-                    {virtualSpin && <Spin
-                      key="virtual"
-                      spinning
+            <ModalProvider>
+              {this.getHeader()}
+              <TableQueryBar
+                buttons={buttons}
+                pagination={pagination}
+                queryFields={queryFields}
+                clientExportQuantity={clientExportQuantity}
+                summaryBar={summaryBar}
+                dynamicFilterBar={dynamicFilterBar}
+                queryFieldsLimit={queryFieldsLimit}
+                summaryFieldsLimit={summaryFieldsLimit}
+                filterBarFieldName={filterBarFieldName}
+                filterBarPlaceholder={filterBarPlaceholder}
+              />
+              <Spin {...tableSpinProps} {...this.getSpinProps()} key="content">
+                {
+                  virtual && (
+                    <div
+                      ref={(node) => this.refSpin = node}
                       style={{
-                        height: pxToRem(styleHeight),
-                        lineHeight: pxToRem(styleHeight),
-                        position: 'absolute',
-                        width: '100%',
-                        zIndex: 4,
+                        display: 'none',
                       }}
-                      {...tableSpinProps}
-                      {...spin}
-                    />}
+                    >
+                      {virtualSpin && <Spin
+                        key="virtual"
+                        spinning
+                        style={{
+                          height: pxToRem(styleHeight),
+                          lineHeight: pxToRem(styleHeight),
+                          position: 'absolute',
+                          width: '100%',
+                          zIndex: 4,
+                        }}
+                        {...tableSpinProps}
+                        {...spin}
+                      />}
+                    </div>
+                  )
+                }
+                <div {...this.getOtherProps()}>
+                  <div
+                    className={classNames(`${prefixCls}-content`, { [`${prefixCls}-content-overflow`]: isStickySupport() && overflowX && !overflowY })}
+                    onScroll={this.handleBodyScroll}
+                  >
+                    {!isStickySupport() && isAnyColumnsLeftLock && overflowX && this.getLeftFixedTable()}
+                    {content}
+                    {!isStickySupport() && isAnyColumnsRightLock && overflowX && this.getRightFixedTable()}
                   </div>
-                )
-              }
-              <div {...this.getOtherProps()}>
-                <div className={`${prefixCls}-content`}>
-                  {content}
-                  {isAnyColumnsLeftLock && overflowX && this.getLeftFixedTable()}
-                  {isAnyColumnsRightLock && overflowX && this.getRightFixedTable()}
-                  {dragRow && dragColumnAlign === DragColumnAlign.left && isAnyColumnsLeftLock && this.getLeftFixedTable(DragColumnAlign.left)}
-                  {dragRow && dragColumnAlign === DragColumnAlign.right && isAnyColumnsRightLock && this.getRightFixedTable(DragColumnAlign.right)}
+                  <div ref={this.saveResizeRef} className={`${prefixCls}-split-line`} />
+                  {this.getFooter()}
                 </div>
-                <div ref={this.saveResizeRef} className={`${prefixCls}-split-line`} />
-                {this.getFooter()}
-              </div>
-            </Spin>
-            {this.getPagination(TablePaginationPosition.bottom)}
+              </Spin>
+              {this.getPagination(TablePaginationPosition.bottom)}
+            </ModalProvider>
           </TableContext.Provider>
         </div>
       </ReactResizeObserver>
@@ -1288,98 +1362,52 @@ export default class Table extends DataSetComponent<TableProps> {
   }
 
   @action
-  reorderDataSet(dataset: DataSet, startIndex: number, endIndex: number) {
-    dataset.move(startIndex, endIndex);
-  };
-
-  @action
-  reorderColumns(columns: ColumnProps[], startIndex: number, endIndex: number) {
-    const { columnsOnChange } = this.props;
-    if (startIndex !== endIndex) {
-      const cloneColumns = columns.slice();
-      const [dropItem] = cloneColumns.slice(endIndex, endIndex + 1);
-      const [dragItem] = cloneColumns.slice(startIndex, startIndex + 1);
-      const normalColumnLock = (lock) => {
-        if (lock === true) {
-          return ColumnLock.left;
-        }
-        if (!lock) {
-          return false;
-        }
-        return lock;
-      };
-      if (
-        dropItem &&
-        dragItem &&
-        dropItem.key !== DRAG_KEY &&
-        dragItem.key !== DRAG_KEY &&
-        normalColumnLock(dragItem.lock) === normalColumnLock(dropItem.lock)) {
-        const [removed] = columns.splice(startIndex, 1);
-        if (columns.length) {
-          columns.splice(endIndex, 0, removed);
-          if (columnsOnChange) {
-            columnsOnChange({ column: toJS(removed), columns: toJS(columns), type: ColumnsEditType.order });
-          }
-        }
-      }
-    }
+  reorderDataSet(startIndex: number, endIndex: number) {
+    const { dataSet } = this.tableStore;
+    dataSet.move(startIndex, endIndex);
   };
 
   @autobind
-  onDragEnd(resultDrag: DropResult, provided: ResponderProvided) {
+  handleDragEnd(resultDrag: DropResult, provided: ResponderProvided) {
     const { onDragEnd, onDragEndBefore } = this.props;
-    // @ts-ignore ts 中判断是否属于目标类型的方法
-    const isDropresult = (dropResult: any): dropResult is DropResult => {
-      if (dropResult && dropResult.destination) {
-        return ((typeof (dropResult as DropResult).source.index === 'number')
-          && (typeof (dropResult as DropResult).destination === 'object')
-          && (typeof (dropResult as DropResult).destination!.index === 'number'));
-      }
-    };
 
-    let resultBefore;
+    let resultBefore: DropResult | undefined = resultDrag;
     if (onDragEndBefore) {
       const result = onDragEndBefore(this.tableStore.dataSet, toJS(this.tableStore.columns), resultDrag, provided);
       if (result === false) {
         return;
       }
-      if (result && isDropresult(result)) {
+      if (isDropresult(result)) {
         resultBefore = result;
       }
     }
-    resultBefore = resultDrag;
     if (resultBefore && resultBefore.destination) {
-      if (resultBefore.destination.droppableId === 'table') {
-        this.reorderDataSet(
-          this.tableStore.dataSet,
-          resultBefore.source.index,
-          resultBefore.destination.index,
-        );
-      }
-      if (resultBefore.destination.droppableId === 'tableHeader') {
-        this.reorderColumns(
-          this.tableStore.columns,
-          resultBefore.source.index,
-          resultBefore.destination.index,
-        );
-      }
+      this.reorderDataSet(
+        resultBefore.source.index,
+        resultBefore.destination.index,
+      );
     }
     /**
      * 相应变化后的数据
      */
     if (onDragEnd) {
-      onDragEnd(this.tableStore.dataSet, toJS(this.tableStore.columns), resultDrag, provided);
+      onDragEnd(this.tableStore.dataSet, toJS(this.tableStore.columns), resultBefore, provided);
     }
   }
 
   @autobind
   handleBodyScroll(e: React.SyntheticEvent) {
     const { currentTarget } = e;
-    e.persist();
-    this.scrollId = raf(() => {
+    const handle = () => {
       this.handleBodyScrollTop(e, currentTarget);
       this.handleBodyScrollLeft(e, currentTarget);
-    });
+    };
+    if (isStickySupport()) {
+      handle();
+    } else {
+      e.persist();
+      this.scrollId = raf(handle);
+    }
   }
 
   /**
@@ -1396,6 +1424,7 @@ export default class Table extends DataSetComponent<TableProps> {
       tableStore: { virtual, height, lastScrollTop },
     } = this;
     if (
+      (isStickySupport() && !virtual) ||
       (height === undefined && !autoHeight) ||
       currentTarget !== target ||
       target === this.tableFootWrap
@@ -1403,10 +1432,8 @@ export default class Table extends DataSetComponent<TableProps> {
       return;
     }
     const fixedColumnsBodyLeft = this.fixedColumnsBodyLeft;
-    const dragColumnsBodyLeft = this.dragColumnsBodyLeft;
     const bodyTable = this.tableBodyWrap;
     const fixedColumnsBodyRight = this.fixedColumnsBodyRight;
-    const dragColumnsBodyRight = this.dragColumnsBodyRight;
     const { scrollTop } = target;
     if (scrollTop !== lastScrollTop) {
       if (fixedColumnsBodyLeft && target !== fixedColumnsBodyLeft) {
@@ -1419,14 +1446,6 @@ export default class Table extends DataSetComponent<TableProps> {
         fixedColumnsBodyRight.scrollTop = scrollTop;
       }
 
-      if (dragColumnsBodyLeft && target !== dragColumnsBodyLeft) {
-        dragColumnsBodyLeft.scrollTop = scrollTop;
-      }
-
-      if (dragColumnsBodyRight && target !== dragColumnsBodyRight) {
-        dragColumnsBodyRight.scrollTop = scrollTop;
-      }
-
       if (virtual) {
         this.refSpin!.style.display = 'block';
         this.setSpin();
@@ -1437,11 +1456,12 @@ export default class Table extends DataSetComponent<TableProps> {
 
   handleBodyScrollLeft(e, currentTarget) {
     const { target } = e;
+    const { tableStore } = this;
     const headTable = this.tableHeadWrap;
     const bodyTable = this.tableBodyWrap;
     const footTable = this.tableFootWrap;
     if (
-      this.tableStore.overflowX === undefined ||
+      !tableStore.overflowX ||
       currentTarget !== target ||
       target === this.fixedColumnsBodyRight ||
       target === this.fixedColumnsBodyLeft
@@ -1450,6 +1470,17 @@ export default class Table extends DataSetComponent<TableProps> {
     }
     const { scrollLeft } = target;
     if (scrollLeft !== this.lastScrollLeft) {
+      if (isStickySupport()) {
+        [...tableStore.editors.values()].forEach((editor) => {
+          if (editor.lock && editor.cellNode) {
+            if (tableStore.inlineEdit) {
+              editor.alignEditor(editor.cellNode);
+            } else {
+              editor.hideEditor();
+            }
+          }
+        });
+      }
       if (headTable && target !== headTable) {
         headTable.scrollLeft = scrollLeft;
       }
@@ -1487,7 +1518,7 @@ export default class Table extends DataSetComponent<TableProps> {
   setScrollPosition(position: ScrollPosition): void {
     if (this.scrollPosition !== position) {
       this.scrollPosition = position;
-      const { prefixCls } = this;
+      const { prefixCls } = this.tableStore;
       const cls = classes(this.element).remove(new RegExp(`^${prefixCls}-scroll-position-.+$`));
       if (position === ScrollPosition.both) {
         cls.add(`${prefixCls}-scroll-position-left`).add(`${prefixCls}-scroll-position-right`);
@@ -1502,10 +1533,8 @@ export default class Table extends DataSetComponent<TableProps> {
     hasBody: boolean,
     hasFooter: boolean,
     lock?: ColumnLock | boolean,
-    dragColumnAlign?: DragColumnAlign,
   ): ReactNode {
     const {
-      prefixCls,
       tableStore: { virtual },
     } = this;
 
@@ -1514,31 +1543,27 @@ export default class Table extends DataSetComponent<TableProps> {
         {
           hasHeader && (
             <TableWrapper
-              prefixCls={prefixCls}
               key="tableWrapper-header"
               lock={lock}
               hasBody={hasBody}
               hasHeader={hasHeader}
               hasFooter={hasFooter}
-              dragColumnAlign={dragColumnAlign}
             >
-              {this.getTableHeader(lock, dragColumnAlign)}
+              {this.getTableHeader(lock)}
             </TableWrapper>
           )
         }
         {
           hasBody && (
-            <VirtualWrapper prefixCls={prefixCls}>
+            <VirtualWrapper>
               <TableWrapper
-                prefixCls={prefixCls}
                 key="tableWrapper-body"
                 lock={lock}
                 hasBody={hasBody}
                 hasHeader={hasHeader}
                 hasFooter={hasFooter}
-                dragColumnAlign={dragColumnAlign}
               >
-                {this.getTableBody(lock, dragColumnAlign)}
+                {this.getTableBody(lock)}
               </TableWrapper>
             </VirtualWrapper>
           )
@@ -1546,42 +1571,38 @@ export default class Table extends DataSetComponent<TableProps> {
         {
           hasFooter && (
             <TableWrapper
-              prefixCls={prefixCls}
               key="tableWrapper-footer"
               lock={lock}
               hasBody={hasBody}
               hasHeader={hasFooter}
               hasFooter={hasFooter}
-              dragColumnAlign={dragColumnAlign}
             >
-              {this.getTableFooter(lock, dragColumnAlign)}
+              {this.getTableFooter(lock)}
             </TableWrapper>
           )
         }
       </>
     ) : (
       <TableWrapper
-        prefixCls={prefixCls}
         key="tableWrapper"
         lock={lock}
         hasBody={hasBody}
         hasHeader={hasHeader}
         hasFooter={hasFooter}
-        dragColumnAlign={dragColumnAlign}
       >
-        {hasHeader && this.getTableHeader(lock, dragColumnAlign)}
-        {hasBody && this.getTableBody(lock, dragColumnAlign)}
-        {hasFooter && this.getTableFooter(lock, dragColumnAlign)}
+        {hasHeader && this.getTableHeader(lock)}
+        {hasBody && this.getTableBody(lock)}
+        {hasFooter && this.getTableFooter(lock)}
       </TableWrapper>
     );
   }
 
   getHeader(): ReactNode {
     const {
-      prefixCls,
       props: { header, dataSet },
     } = this;
     if (header) {
+      const { prefixCls } = this.tableStore;
       const data = dataSet ? dataSet.records : [];
       return (
         <div key="header" className={`${prefixCls}-header`}>
@@ -1593,10 +1614,10 @@ export default class Table extends DataSetComponent<TableProps> {
 
   getFooter(): ReactNode | undefined {
     const {
-      prefixCls,
       props: { footer, dataSet },
     } = this;
     if (footer) {
+      const { prefixCls } = this.tableStore;
       const data = dataSet ? dataSet.records : [];
       return (
         <div key="footer" className={`${prefixCls}-footer`}>
@@ -1608,9 +1629,8 @@ export default class Table extends DataSetComponent<TableProps> {
 
   getPagination(position: TablePaginationPosition): ReactElement<PaginationProps> | undefined {
     const {
-      prefixCls,
-      props: { dataSet },
-      tableStore: { pagination },
+      props: { dataSet, selectionMode },
+      tableStore: { prefixCls, pagination, showSelectionTips },
     } = this;
     if (pagination !== false && dataSet && dataSet.paging) {
       const paginationPosition = getPaginationPosition(pagination);
@@ -1620,45 +1640,24 @@ export default class Table extends DataSetComponent<TableProps> {
           <Pagination
             key={`pagination-${position}`}
             {...paginationProps}
-            className={classNames(`${prefixCls}-pagination`, paginationProps.className)}
+            className={classNames(`${prefixCls}-pagination`, paginationProps.className, { [`${prefixCls}-pagination-with-selection-tips`]: showSelectionTips })}
             dataSet={dataSet}
           >
-            {this.getCacheSelectionSwitch()}
+            {selectionMode !== SelectionMode.none && dataSet.selection === DataSetSelection.multiple && <SelectionTips />}
           </Pagination>
         );
       }
     }
   }
 
-  getCacheSelectionSwitch() {
-    const {
-      props: { dataSet },
-      prefixCls,
-    } = this;
-    if (dataSet && dataSet.cacheSelectionKeys && dataSet.cachedSelected.length) {
-      const { showCachedSeletion } = this.tableStore;
-      return (
-        <Tooltip
-          title={$l('Table', showCachedSeletion ? 'hide_cached_seletion' : 'show_cached_seletion')}
-        >
-          <Switch
-            className={`${prefixCls}-switch`}
-            checked={showCachedSeletion}
-            onChange={this.handleSwitchChange}
-          />
-        </Tooltip>
-      );
-    }
-  }
-
-  getTable(lock?: ColumnLock | boolean, dragColumnAlign?: DragColumnAlign): ReactNode {
-    const { prefixCls, props: { autoHeight } } = this;
+  getTable(lock?: ColumnLock | boolean): ReactNode {
+    const { autoHeight } = this.props;
     const { overflowX, height, hasFooter: footer } = this.tableStore;
     let tableHead: ReactNode;
     let tableBody: ReactNode;
     let tableFooter: ReactNode;
-    if ((!dragColumnAlign && overflowX) || height !== undefined || autoHeight) {
-      const { lockColumnsBodyRowsHeight, rowHeight } = this.tableStore;
+    if ((!isStickySupport() && overflowX) || height !== undefined || autoHeight) {
+      const { prefixCls, lockColumnsBodyRowsHeight, rowHeight, leftLeafColumnsWidth, rightLeafColumnsWidth, overflowY } = this.tableStore;
       let bodyHeight = height;
       let tableHeadRef;
       let tableBodyRef;
@@ -1667,16 +1666,13 @@ export default class Table extends DataSetComponent<TableProps> {
         tableHeadRef = node => (this.tableHeadWrap = node);
         tableFootRef = node => (this.tableFootWrap = node);
         tableBodyRef = node => (this.tableBodyWrap = node);
-      } else if (lock === 'right') {
+      } else if (lock === ColumnLock.right) {
         tableBodyRef = (node) => {
           this.fixedColumnsBodyRight = node;
           if (node) {
             this.syncSize();
           }
         };
-        if (dragColumnAlign === DragColumnAlign.right) {
-          tableBodyRef = node => (this.dragColumnsBodyRight = node);
-        }
       } else {
         tableBodyRef = (node) => {
           this.fixedColumnsBodyLeft = node;
@@ -1684,9 +1680,6 @@ export default class Table extends DataSetComponent<TableProps> {
             this.syncSize();
           }
         };
-        if (dragColumnAlign === DragColumnAlign.left) {
-          tableBodyRef = node => (this.dragColumnsBodyLeft = node);
-        }
       }
       if (isObject(autoHeight) && autoHeight.type === TableAutoHeightType.maxHeight) {
         bodyHeight = undefined;
@@ -1700,10 +1693,16 @@ export default class Table extends DataSetComponent<TableProps> {
           bodyHeight -= measureScrollbar();
         }
       }
+      const style: CSSProperties | undefined = lock ? {
+        width: pxToRem(lock === ColumnLock.right
+          ? (rightLeafColumnsWidth - 1 + (overflowY ? measureScrollbar() : 0))
+          : leftLeafColumnsWidth),
+        marginLeft: lock === ColumnLock.right ? pxToRem(1) : undefined,
+      } : undefined;
 
       tableHead = (
-        <div key="tableHead" ref={tableHeadRef} className={`${prefixCls}-head`}>
-          {this.renderTable(true, false, false, lock, dragColumnAlign)}
+        <div key="tableHead" ref={tableHeadRef} className={`${prefixCls}-head`} style={style}>
+          {this.renderTable(true, false, false, lock)}
         </div>
       );
 
@@ -1711,13 +1710,11 @@ export default class Table extends DataSetComponent<TableProps> {
         <TableBody
           key="tableBody"
           getRef={tableBodyRef}
-          prefixCls={prefixCls}
           lock={lock}
           height={bodyHeight}
           onScroll={this.handleBodyScroll}
-          dragColumnAlign={dragColumnAlign}
         >
-          {this.renderTable(false, true, false, lock, dragColumnAlign)}
+          {this.renderTable(false, true, false, lock)}
         </TableBody>
       );
 
@@ -1727,84 +1724,64 @@ export default class Table extends DataSetComponent<TableProps> {
             key="tableFooter"
             ref={tableFootRef}
             className={`${prefixCls}-foot`}
+            style={style}
             onScroll={this.handleBodyScroll}
           >
-            {this.renderTable(false, false, true, lock, dragColumnAlign)}
+            {this.renderTable(false, false, true, lock)}
           </div>
         );
       }
     } else {
-      tableBody = this.renderTable(true, true, footer, lock, dragColumnAlign);
+      tableBody = this.renderTable(true, true, footer, lock);
     }
     return [tableHead, tableBody, tableFooter];
   }
 
-  getLeftFixedTable(dragColumnAlign?: DragColumnAlign): ReactNode {
-    const { overflowX, height } = this.tableStore;
-    if ((!dragColumnAlign && !overflowX) && height === undefined) {
+  getLeftFixedTable(): ReactNode {
+    const { overflowX, height, prefixCls } = this.tableStore;
+    if (!overflowX && height === undefined) {
       return;
     }
-    const { prefixCls } = this;
-    const table = this.getTable(ColumnLock.left, dragColumnAlign);
-    const isDragLeft = dragColumnAlign === DragColumnAlign.left;
-    const FixedTableClassName = classNames(`${prefixCls}-fixed-left`, {
-      [`${prefixCls}-drag-left`]: isDragLeft,
-    });
-    let styleNOShadow = {};
-    if (isDragLeft && this.tableStore.leftLeafColumns.length !== 1) {
-      styleNOShadow = { boxShadow: 'none' };
-    }
-    return <div style={styleNOShadow} className={FixedTableClassName}>{table}</div>;
+    const table = this.getTable(ColumnLock.left);
+    return <div className={`${prefixCls}-fixed-left`}>{table}</div>;
   }
 
-  getRightFixedTable(dragColumnAlign?: DragColumnAlign): ReactNode | undefined {
-    const { overflowX, height } = this.tableStore;
-    if ((!dragColumnAlign && !overflowX) && height === undefined) {
+  getRightFixedTable(): ReactNode | undefined {
+    const { overflowX, height, prefixCls } = this.tableStore;
+    if (!overflowX && height === undefined) {
       return;
     }
-    const { prefixCls } = this;
-    const table = this.getTable(ColumnLock.right, dragColumnAlign);
+    const table = this.getTable(ColumnLock.right);
     return <div className={`${prefixCls}-fixed-right`}>{table}</div>;
   }
 
-  getTableBody(lock?: ColumnLock | boolean, dragColumnAlign?: DragColumnAlign): ReactNode {
+  getTableBody(lock?: ColumnLock | boolean): ReactNode {
     const {
-      prefixCls,
       props: { indentSize, style },
-      tableStore: { dragColumnAlign: propsDragColumnAlign, dragRow },
+      tableStore: { rowDraggable },
     } = this;
-    const isDragDisabled = (dragColumnAlign || propsDragColumnAlign) ? !(dragColumnAlign && propsDragColumnAlign) : !dragRow;
-    return isDragDisabled ? (
-      <TableTBody key="tbody" prefixCls={prefixCls} lock={lock} indentSize={indentSize!} style={style} dragColumnAlign={dragColumnAlign} />
-    ) : (
-      <DragDropContext onDragEnd={this.onDragEnd}>
-        <TableTBody key="tbody" prefixCls={prefixCls} lock={lock} indentSize={indentSize!} style={style} dragColumnAlign={dragColumnAlign} />
+    const body = <TableTBody key="tbody" lock={lock} indentSize={indentSize!} style={style} />;
+    return rowDraggable ? (
+      <DragDropContext onDragEnd={this.handleDragEnd}>
+        {body}
       </DragDropContext>
+    ) : body;
+  }
+
+  getTableHeader(lock?: ColumnLock | boolean): ReactNode {
+    const {
+      props: { dataSet },
+    } = this;
+    return (
+      <TableHeader key="thead" lock={lock} dataSet={dataSet} />
     );
   }
 
-  getTableHeader(lock?: ColumnLock | boolean, dragColumnAlign?: DragColumnAlign): ReactNode {
+  getTableFooter(lock?: ColumnLock | boolean): ReactNode {
     const {
-      prefixCls,
-      props: { dataSet },
-      tableStore: { dragColumn, columnMaxDeep },
-    } = this;
-    const isDragDisabled = !dragColumn || columnMaxDeep > 1;
-    return isDragDisabled ? (
-      <TableHeader key="thead" prefixCls={prefixCls} lock={lock} dataSet={dataSet} dragColumnAlign={dragColumnAlign} />
-    ) : (
-      <DragDropContext onDragEnd={this.onDragEnd}>
-        <TableHeader key="thead" prefixCls={prefixCls} lock={lock} dataSet={dataSet} dragColumnAlign={dragColumnAlign} />
-      </DragDropContext>
-    );
-  }
-
-  getTableFooter(lock?: ColumnLock | boolean, dragColumnAlign?: DragColumnAlign): ReactNode {
-    const {
-      prefixCls,
       props: { dataSet },
     } = this;
-    return <TableFooter key="tfoot" prefixCls={prefixCls} lock={lock} dataSet={dataSet} dragColumnAlign={dragColumnAlign} />;
+    return <TableFooter key="tfoot" lock={lock} dataSet={dataSet} />;
   }
 
   getStyleHeight(): number | undefined {
@@ -1822,10 +1799,10 @@ export default class Table extends DataSetComponent<TableProps> {
   }
 
   getContentHeight() {
-    const { wrapper, element, props: { autoHeight }, tableBodyWrap, fixedColumnsBodyLeft, fixedColumnsBodyRight } = this;
+    const { wrapper, element, props: { autoHeight }, tableBodyWrap, tableStore: { prefixCls } } = this;
     if (autoHeight) {
       const { top: parentTop, height: parentHeight } = wrapper.parentNode.getBoundingClientRect();
-      const { paddingBottom, paddingTop } = wrapper.parentNode.style;
+      const { paddingBottom } = wrapper.parentNode.style;
       const { top: tableTop } = element.getBoundingClientRect();
       let diff = getConfig('tableAutoHeightDiff') || 80;
       let type = TableAutoHeightType.minHeight;
@@ -1834,23 +1811,33 @@ export default class Table extends DataSetComponent<TableProps> {
         diff = autoHeight.diff || diff;
       }
       const paddingBottomPx = toPx(paddingBottom) || 0;
-      const paddingTopPx = toPx(paddingTop) || 0;
       if (wrapper) {
         if (type === TableAutoHeightType.minHeight) {
-          return parentHeight - (tableTop - parentTop) - diff - paddingBottomPx - paddingTopPx;
+          return parentHeight - (tableTop - parentTop) - diff - paddingBottomPx;
         }
-        let maxHeight = parentHeight - (tableTop - parentTop) - diff - paddingBottomPx - paddingTopPx;
+        const maxHeight = parentHeight - (tableTop - parentTop) - diff - paddingBottomPx;
+        // 保证max高度和Height维持一致防止scroll问题 maxHeight - 外框paddingBottom 以及 diff 和其他 tableBody 以外的高度。
         if (tableBodyWrap) {
-          tableBodyWrap.style.maxHeight = pxToRem(maxHeight) || '';
+          let maxBodyHeight = maxHeight;
+          const tableHeader: HTMLTableSectionElement | null = element.querySelector(
+            `.${prefixCls}-thead`,
+          );
+          const tableFooter: HTMLTableSectionElement | null = element.querySelector(
+            `.${prefixCls}-footer`,
+          );
+          const tableFootWrap: HTMLDivElement | null = element.querySelector(`.${prefixCls}-foot`);
+          if (tableHeader) {
+            maxBodyHeight -= getHeight(tableHeader);
+          }
+          if (tableFooter) {
+            maxBodyHeight -= getHeight(tableFooter);
+          }
+          if (tableFootWrap) {
+            maxBodyHeight -= getHeight(tableFootWrap);
+          }
+          tableBodyWrap.style.maxHeight = pxToRem(maxBodyHeight) || '';
         }
-        maxHeight -= measureScrollbar();
-        if (fixedColumnsBodyLeft) {
-          fixedColumnsBodyLeft.style.maxHeight = pxToRem(maxHeight) || '';
-        }
-        if (fixedColumnsBodyRight) {
-          fixedColumnsBodyRight.style.maxHeight = pxToRem(maxHeight) || '';
-        }
-        return parentHeight - (tableTop - parentTop) - diff || 0;
+        return maxHeight || 0;
       }
     }
     return this.getStyleHeight();
@@ -1862,7 +1849,7 @@ export default class Table extends DataSetComponent<TableProps> {
     const { element, tableStore } = this;
     if (element) {
       tableStore.width = Math.floor(width);
-      const { prefixCls } = this;
+      const { prefixCls } = tableStore;
       let height = this.getContentHeight();
       if (element && isNumber(height)) {
         const tableTitle: HTMLDivElement | null = element.querySelector(`.${prefixCls}-title`);
